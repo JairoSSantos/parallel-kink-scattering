@@ -1,6 +1,7 @@
 import numpy as np
+from typing import Callable
 
-def second_derivative_2(y:np.ndarray, dt: float, axis: int=0):
+def second_2(y:np.ndarray, dt: float, axis: int=0):
     '''
     Segunda derivada de segunda ordem.
 
@@ -25,7 +26,7 @@ def second_derivative_2(y:np.ndarray, dt: float, axis: int=0):
     )
     return ( a - 2*b + c )/dt**2
 
-def second_derivative_4(y:np.ndarray, dt: float, axis: int=0):
+def second_4(y:np.ndarray, dt: float, axis: int=0):
     '''
     Segunda derivada de quarta ordem.
 
@@ -51,7 +52,7 @@ def second_derivative_4(y:np.ndarray, dt: float, axis: int=0):
         np.take_along_axis(y, indices[4:], axis=axis)
     )
     return np.r_[
-        second_derivative_2(y=np.take_along_axis(y, indices[:3], axis=axis), dt=dt, axis=axis), # borda inferior
+        second_2(y=np.take_along_axis(y, indices[:3], axis=axis), dt=dt, axis=axis), # borda inferior
         ( -30*c + 16*(b + d) - (a + e) )/(12*dt**2),
-        second_derivative_2(y=np.take_along_axis(y, indices[-3:], axis=axis), dt=dt, axis=axis) # bordas superior
+        second_2(y=np.take_along_axis(y, indices[-3:], axis=axis), dt=dt, axis=axis) # bordas superior
     ]
