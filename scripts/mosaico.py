@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from multiprocessing import Pool
+from multiprocessing import Pool, Lock
 from os import cpu_count
 import time
 from pathlib import Path
@@ -98,23 +98,60 @@ def kink_antikink(x0, v, lamb):
             lambda x: - c1*v1/np.cosh((x + x0)*c1)**2 + c2*v2/np.cosh((x - x0)*c2)**2
         )
 
+class Mosaic:
+    def __init__(self, filename):
+        self.path = data_dir/filename
+
+    def create(self, v_range, lambda_range):
+        pd.DataFrame(columns=v_range.round(3).astype(str), index=lambda_range.round(3)).to_csv(self.path)
+
+    def set_and_save(self, v, lamb, value):
+        df = pd.read_csv(self.path, index_col=0)
+        v = np.round(v, 3)
+        lamb = np.round(lamb, 3)
+        df[str(v)].at[lamb] = value
+        df.to_csv(self.path)
+
+    def calculated(self, v, lamb):
+        v = np.round(v, 3)
+        lamb = np.round(lamb, 3)
+        return not pd.isna(pd.read_csv(self.path, index_col=0)[str(v)].at[lamb])
+
 if __name__ == '__main__':
     x0 = 5
     grid = Grid(-40, 40, N=1000)
+    v_range = np.arange(0.1, 0.3, 0.2/100)
+    lambda_range = np.arange(1, 50, 49/100)
+    v_grid, lambda_grid = np.meshgrid(v_range, lambda_range)
+    v_lamb = np.stack((v_grid.flatten(), lambda_grid.flatten()), axis=1)
+    
+    cm = Mosaic('mosaic.csv')
+    cm.create(v_range, lambda_range)
+    exec_time = Mosaic('exec_time.csv')
+    exec_time.create(v_range, lambda_range)
+    ell_time = Mosaic('ell_time.csv')
+    ell_time.create(v_range, lambda_range)
 
+    start = time.time()
+    lock = Lock()
     def solve_and_save(vl):
         v, lamb = vl
-        tic = time.time()
-        solver = RKSolver(0, grid.dx*0.7, HyperProblem(grid, *kink_antikink(x0, v, lamb)))
-        solver.run_util(x0/v + grid.xr)
-        tac = time.time()
-        data = pd.DataFrame(solver.Y[:, 0], columns=grid.x[1:-1], index=solver.t)
-        data.to_csv(data_dir/f'{v}-{lamb}-{tac-tic}.csv')
+        calculated = False
+        with lock:
+            calculated = cm.calculated(v, lamb)
+        if not calculated:
+            try:
+                tic = time.time()
+                solver = RKSolver(0, grid.dx*0.7, HyperProblem(grid, *kink_antikink(x0, v, lamb)))
+                solver.run_util(x0/v + grid.xr)
+                tac = time.time()
+            except Exception as error: 
+                print(error)
+            else:
+                with lock:
+                    cm.set_and_save(v, lamb, solver.Y[-1, 0][499])
+                    exec_time.set_and_save(v, lamb, tac-tic)
+                    ell_time.set_and_save(v, lamb, tac-start)
 
-    v = np.linspace(0.1, 0.3, 100)
-    lamb = np.linspace(1, 50, 100)
-    v, lamb = np.meshgrid(v, lamb)
-    v_lamb = np.stack((v.flatten(), lamb.flatten()), axis=1)
-    
     with Pool(processes=cpu_count()) as pool:
         pool.map(solve_and_save, v_lamb)
