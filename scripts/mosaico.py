@@ -3,6 +3,7 @@ import pandas as pd
 from multiprocessing import Pool, Lock
 from os import cpu_count
 import time
+import sys
 from pathlib import Path
 data_dir = Path('../data/mosaico')
 
@@ -111,6 +112,7 @@ class Mosaic:
         lamb = np.round(lamb, 3)
         df[str(v)].at[lamb] = value
         df.to_csv(self.path)
+        print(1 - df.isnull().values.sum()/df.size)
 
     def calculated(self, v, lamb):
         v = np.round(v, 3)
@@ -126,11 +128,12 @@ if __name__ == '__main__':
     v_lamb = np.stack((v_grid.flatten(), lambda_grid.flatten()), axis=1)
     
     cm = Mosaic('mosaic.csv')
-    cm.create(v_range, lambda_range)
     exec_time = Mosaic('exec_time.csv')
-    exec_time.create(v_range, lambda_range)
     ell_time = Mosaic('ell_time.csv')
-    ell_time.create(v_range, lambda_range)
+    if '--create' in sys.argv:
+        cm.create(v_range, lambda_range)
+        exec_time.create(v_range, lambda_range)
+        ell_time.create(v_range, lambda_range)
 
     start = time.time()
     lock = Lock()
