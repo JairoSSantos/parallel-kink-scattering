@@ -37,49 +37,11 @@ class Diff:
     def __call__(self, y):
         return self.M.dot(y)
 
-
-class Grid:
-    def __init__(self, xl, xr, dx=None, N=None):
-        assert (dx != None or N != None)
-        self.xl, self.xr = xl, xr
-        if dx != None:
-            self.dx = dx
-            self.N = int((xr - xl)/dx)
-        elif N != None:
-            self.dx = (xr - xl)/N
-            self.N = N
-        self.x = np.arange(self.xl, self.xr, self.dx)
-    
-    def window(self, left=None, right=None):
-        if left == None: left = self.xl
-        if right == None: right = self.xr
-        return (self.x >= left) & (self.x <= right)
-    
-    def at(self, x):
-        return np.abs(self.x - x).argmin()
-
-class HyperProblem:
-    def __init__(self, grid, h, f, g):
-        self.grid = grid
-        self.h = h
-        self.y0 = np.stack((
-            f(grid.x),
-            g(grid.x)
-        ))
-        self.diff = Diff(2, self.grid.N, 5, self.grid.dx)
-        
-    def d2y_dx2(self, t, y):
-        return self.diff(y) + self.h(self.grid.x, t, y)
-
-    def F(self, t, Y):
-        y, dy_dt = Y
-        return np.stack((dy_dt, self.d2y_dx2(t, y)))
-
 class RKSolver:
-    def __init__(self, hyper_problem, t0, dt):
+    def __init__(self, F, y0, dt, t0=0):
         self.dt = dt
-        self.F = hyper_problem.F
-        self._y = [hyper_problem.y0]
+        self.F = F
+        self._y = [y0]
         self._t = [t0]
 
     def step(self):
@@ -130,23 +92,64 @@ class Kink:
         return -self._c*self.v/np.cosh(self.z(x, t))**2
 
 class KinkAntikink(RKSolver):
-    def __init__(self, grid, x0, v, lamb, dt, t0=0):
+    def __init__(self, L, N, dt_dx, x0, v, lamb, x_order=4):
+
+        self.N = N
+        self.dx = 2*L/N
+        self.dt = dt_dx*self.dx
+        self.x = np.arange(-L, L, self.dx)
+        self.diff = Diff(2, N, x_order+1, self.dx)
+
         self.lamb = lamb
-        self._k1 = Kink(-x0, v, lamb)
-        self._k2 = Kink(x0, -v, lamb)
-        hyper_problem = HyperProblem(grid, self.h, self.f, self.g)
-        self._yl, self._yr = hyper_problem.y0[0, 0], hyper_problem.y0[0, -1]
-        super().__init__(hyper_problem, t0, dt)
+        k1 = Kink(-x0, v, lamb)
+        k2 = Kink(x0, -v, lamb)
+
+        f = k1(x, t=0) - k2(x, t=0) - 1
+        g = k1.dt(x, t=0) - k2.dt(x, t=0)
+
+        self._y = [np.stack((f, g))]
+        self._t = [0]
     
-    def f(self, x):
-        return self._k1(x=x, t=0) - self._k2(x=x, t=0) - 1
-    
-    def g(self, x):
-        return self._k1.dt(x=x, t=0) - self._k2.dt(x=x, t=0)
-    
-    def h(self, x, t, y):
+    def h(self, y):
         return self.lamb*y*(1 - y**2)
+
+    def F(self, t, Y):
+        y, dy_dt = Y
+        return np.stack((
+            dy_dt, # = y'
+            self.diff(y) + self.h(y) # = y''
+        ))
     
     @property
     def y(self):
         return np.stack(self._y)[:, 0]
+    
+class Lattice:
+    def __init__(self, *setup):
+        self.ranges = [np.arange(xl, xr, dx) for xl, xr, dx in setup]
+    
+    def __getitem__(self, axis):
+        return self.ranges[axis]
+    
+    @property
+    def shape(self):
+        return tuple(map(len, self.ranges))
+    
+    @property
+    def grid(self):
+        return np.stack(np.meshgrid(*self.ranges), axis=-1)
+    
+    def loc(self, x, axis=0):
+        return np.abs(self.ranges[axis] - x).argmin()
+    
+    def at(self, *locs):
+        return tuple((
+            self.loc(x, axis=i) if not x in (Ellipsis, None) else x 
+            for i, x in enumerate(locs)
+        ))
+    
+    def window(self, *lims):
+        return tuple((
+            slice(self.loc(lim[0], axis=i), self.loc(lim[1], axis=i)) if not lim in (Ellipsis, None) else lim 
+            for i, lim in enumerate(lims)
+        ))
