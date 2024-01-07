@@ -1,6 +1,7 @@
 import numpy as np
 from math import factorial
 from dataclasses import dataclass
+from functools import partial
 
 def coefficients(m, alpha):
     alpha = np.stack(alpha)
@@ -71,6 +72,42 @@ class RKSolver:
     def t(self):
         return np.stack(self._t)
 
+class Lattice:
+    def __init__(self, **axes):
+        self.axes = axes
+        self.ranges = {kw:np.arange(xl, xr, dx) for kw, (xl, xr, dx) in axes.items()}
+    
+    def __getattr__(self, kw):
+        return self.ranges[kw]
+    
+    def __getitem__(self, axis):
+        return self.ranges[axis]
+    
+    @property
+    def shape(self):
+        return tuple(map(len, self.ranges.values()))
+    
+    @property
+    def grid(self):
+        return np.stack(np.meshgrid(*tuple(self.ranges.values())), axis=-1)
+    
+    def at(self, **locs):
+        kws = tuple(locs.keys())
+        return [
+            np.abs(X - locs[kw]).argmin() if kw in kws else Ellipsis 
+            for kw, X in self.ranges.items()
+        ]
+    
+    def window(self, **lims):
+        kws = tuple(lims.keys())
+        return [
+            slice(np.abs(X - lims[kw][0]).argmin(), 
+                  np.abs(X - lims[kw][1]).argmin())
+            if kw in kws else Ellipsis 
+            for kw, X in self.ranges.items()
+        ]
+
+
 @dataclass
 class Kink:
     x0: float
@@ -90,66 +127,35 @@ class Kink:
     
     def dt(self, x, t):
         return -self._c*self.v/np.cosh(self.z(x, t))**2
-
-class KinkAntikink(RKSolver):
-    def __init__(self, L, N, dt_dx, x0, v, lamb, x_order=4):
-
-        self.N = N
-        self.dx = 2*L/N
-        self.dt = dt_dx*self.dx
-        self.x = np.arange(-L, L, self.dx)
-        self.diff = Diff(2, N, x_order+1, self.dx)
-
-        self.lamb = lamb
-        k1 = Kink(-x0, v, lamb)
-        k2 = Kink(x0, -v, lamb)
-
-        f = k1(x, t=0) - k2(x, t=0) - 1
-        g = k1.dt(x, t=0) - k2.dt(x, t=0)
-
-        self._y = [np.stack((f, g))]
-        self._t = [0]
     
-    def h(self, y):
-        return self.lamb*y*(1 - y**2)
+    def initial_config(x, lamb, x0s, vs, gnd=-1):
+        y0 = np.zeros((2, x.shape[0]))
+        y0[0].fill(gnd)
+        for i, j in enumerate(np.argsort(x0s)):
+            q = gnd*(-1)**(i + 1)
+            k = Kink(x0s[j], vs[j], lamb)
+            y0[0] += q*k(x, t=0)
+            y0[1] += q*k.dt(x, t=0)
+        return y0
 
-    def F(self, t, Y):
+@dataclass
+class KinkCollider:
+    x_lattice: Lattice # (x0, xf, dx)
+    dt: float
+
+    def __post_init__(self):
+        x0, xf, dx = self.x_lattice.axes['x']
+        self.diff_dx = Diff(2, int(abs((xf - x0)/dx)), 5, dx)
+    
+    def F(self, t, Y, lamb):
         y, dy_dt = Y
         return np.stack((
-            dy_dt, # = y'
-            self.diff(y) + self.h(y) # = y''
+            dy_dt, # = y'(t)
+            self.diff_dx(y) + lamb*y*(1 - y**2) # = y''(t)
         ))
     
-    @property
-    def y(self):
-        return np.stack(self._y)[:, 0]
-    
-class Lattice:
-    def __init__(self, *setup):
-        self.ranges = [np.arange(xl, xr, dx) for xl, xr, dx in setup]
-    
-    def __getitem__(self, axis):
-        return self.ranges[axis]
-    
-    @property
-    def shape(self):
-        return tuple(map(len, self.ranges))
-    
-    @property
-    def grid(self):
-        return np.stack(np.meshgrid(*self.ranges), axis=-1)
-    
-    def loc(self, x, axis=0):
-        return np.abs(self.ranges[axis] - x).argmin()
-    
-    def at(self, *locs):
-        return tuple((
-            self.loc(x, axis=i) if not x in (Ellipsis, None) else x 
-            for i, x in enumerate(locs)
-        ))
-    
-    def window(self, *lims):
-        return tuple((
-            slice(self.loc(lim[0], axis=i), self.loc(lim[1], axis=i)) if not lim in (Ellipsis, None) else lim 
-            for i, lim in enumerate(lims)
-        ))
+    def collide(self, x0s, vs: tuple[float], lamb: float, t_final: float):
+        y0 = Kink.initial_config(self.x_lattice.x, lamb, x0s, vs, gnd=-1)
+        solver = RKSolver(partial(self.F, lamb=lamb), y0, self.dt)
+        solver.run_util(t_final)
+        return solver.y[:, 0]
