@@ -7,11 +7,13 @@ from time import time
 import logging
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter('~[%(asctime)s - %(processName)s] %(message)s', datefmt='%d/%m/%Y - %H:%M:%S')
 ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
-ch.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%d/%m/%Y - %H:%M:%S'))
+ch.setFormatter(formatter)
 logger.addHandler(ch)
+logger.setLevel(logging.DEBUG)
 
 from math import factorial
 from dataclasses import dataclass
@@ -200,42 +202,45 @@ class Config:
 
     save_dir = Path('../data/dataset')
     save_dir.mkdir(exist_ok= True)
-    info_path = save_dir/'info.csv'
 
-def get_info():
-    if Config.info_path.exists():
-        info = pd.read_csv(Config.info_path).to_dict('list')
-    else:
-        info = {'lamb': [], 'exec_time': []}
-    return info
+def get_summary():
+    return pd.DataFrame([
+        tuple(map(float, filename.stem.split('-'))) 
+        for filename in Config.save_dir.glob('*')
+    ], columns=('v', 'lamb', 'exec_time', 'delay'))
 
-def it_was_not_calculated(v, lamb):
-    return not len(tuple(Config.save_dir.glob(f'{v}-{lamb}-*.csv'))) > 0
+# def it_was_not_calculated(v, lamb):
+    # return not (len(tuple(Config.save_dir.glob(f'{v}-{lamb}-*.csv'))) > 0)
+    # summary = get_summary()
+    # return np.any(((summary.v == v) & (summary.lamb == lamb)).values)
 
 def init_collisions_queue(vs, lambs):
     collisions_queue = mp.Queue()
 
-    info = get_info()
+    n_collisions = 0
+    summary = get_summary()
     for lamb in lambs:
-        if lamb in info['lamb']:
-            vs = tuple(filter(partial(it_was_not_calculated, lamb=lamb), vs))
-        if len(vs):
+        to_calc_vs = vs[~np.isin(vs, summary[summary.lamb == lamb].v.values)]
+        # vs = tuple(filter(partial(it_was_not_calculated, lamb=lamb), vs))
+
+        len_to_calc_vs = len(to_calc_vs)
+        if len_to_calc_vs > 0:
+            n_collisions += len_to_calc_vs
             collisions_queue.put({
-                'vs': vs,
+                'vs': to_calc_vs,
                 'lamb': lamb
             })
 
-    return collisions_queue
+    return n_collisions, collisions_queue
 
-def collider_task(collider, collisions_queue, output_queue):
+def collider_task(collider, collisions_queue):
     while not collisions_queue.empty():
         point = collisions_queue.get()
-        logger.debug('(%s) ~~ Iniciando colisões para lamb=%s'%(mp.current_process().name, point['lamb']))
+        logger.debug('Iniciando %s colisões para lamb=%s'%(len(point['vs']), point['lamb']))
         local_t0 = time()
         delta = np.sqrt(2/point['lamb'])
         x0 = Config.separation_by_delta*delta/2
 
-        collisions = []
         for v in point['vs']:
             _t0 = time()
             y = collider.collide(
@@ -245,70 +250,82 @@ def collider_task(collider, collisions_queue, output_queue):
                 t_final= 2*x0/v + Config.L
             )
             _tf = time()
-            collisions.append({
-                'v': v,
-                'y': y,
-                'delay': _tf - _t0
-            })
-
-        local_tf = time()
-        output_queue.put({
-            'lamb': point['lamb'],
-            'exec_time': local_tf - local_t0,
-            'collisions': collisions
-        })
-
-def manager_task(collisions_queue, output_queue):
-    info = get_info()
-    total = collisions_queue.qsize()
-    received = 0
-    while received < total:
-        output = output_queue.get()
-        received += 1
-        logger.debug('({}) Salvando os resultados para lambda={} ({}%)'.format(
-            mp.current_process().name, 
-            output['lamb'], 
-            received/total * 100
-        ))
-
-        for collision in output['collisions']:
-            pd.DataFrame(collision['y']).to_csv(
-                Config.save_dir/'{v}-{lamb}-{delay}.csv'.format(
-                    lamb= output['lamb'], 
-                    v= collision['v'], 
-                    delay= collision['delay']
-                ),
+            exec_time, delay = _tf - local_t0, _tf - _t0
+            kink = []
+            for row in y:
+                try: kink.append(Config.x_lattice.x[row >= 0].max())
+                except ValueError: kink.append(None)
+            pd.DataFrame({
+                'y_cm': y[:, Config.cm_index[0]],
+                'kink': kink
+            }).to_csv(
+                Config.save_dir/('%s-%s-%s-%s.csv'%(v, point['lamb'],  exec_time, delay)),
                 index= False,
                 header= False
             )
-        
-        if output['lamb'] in info['lamb']:
-            info['exec_time'][info['lamb'].index(output['lamb'])] = output['exec_time']
-        else:
-            info['lamb'].append(output['lamb'])
-            info['exec_time'].append(output['exec_time'])
-        pd.DataFrame(info).to_csv(Config.info_path, index=False)
+            logger.debug('Simulação finalizada: lamb=%s; v=%s; delay=%s; exec_time=%s'%(
+                point['lamb'],
+                v,
+                delay,
+                exec_time
+            ))
 
-def init_session(n_processes, collisions_queue):
-    output_queue = mp.Queue()
+def manager_task(n_collisions, collisions_queue, output_queue):
+    received = 0
+    while received < n_collisions:
+        output = output_queue.get()
+        received += 1
+        logger.debug('Salvando os resultados para lambda={} e v={} ({}%)'.format(
+            output['lamb'],
+            output['v'],
+            received/n_collisions * 100
+        ))
 
-    logger.debug(f'({mp.current_process().name}) Iniciando {n_processes} + 1 processos...')
-    
-    manager = mp.Process(target=manager_task, args=(collisions_queue, output_queue))
-    manager.start()
+        pd.DataFrame(output['y']).to_csv(
+            Config.save_dir/('%s-%s-%s-%s.csv'%(output['v'], output['lamb'], output['exec_time'], output['delay'])),
+            index= False,
+            header= False
+        )
 
+def init_session(n_processes, n_collisions, collisions_queue):
+    logger.debug(f'Iniciando {n_processes} processos para simular {n_collisions} colisões')
     processes = []
     for _ in range(n_processes):
-        process = mp.Process(target=collider_task, args=(Config.collider, collisions_queue, output_queue))
+        process = mp.Process(target=collider_task, args=(Config.collider, collisions_queue))
         process.start()
         processes.append(process)
     
     for process in processes:
         process.join()
-    manager.join()
+    logger.debug(f'Encerrando sessão')
 
 if __name__ == '__main__':
-    P = mp.cpu_count() - 1
-    V = np.linspace(*Config.v_lims, P*20)
-    LAMB = np.linspace(*Config.lamb_lims, P*20)
-    init_session(P, init_collisions_queue(V, LAMB))
+    import sys
+
+    cpu_count = mp.cpu_count()
+    params = {
+        '-p': cpu_count,
+        '--k-v': cpu_count,
+        '--k-lamb': cpu_count,
+    }
+    for arg in sys.argv:
+        try:
+            name, value = arg.split('=')
+        except ValueError: pass
+        else:
+            match name:
+                case '-k': params['--k-v'] = params['--k-lamb'] = int(value)
+                case '--dataset-name': 
+                    Config.save_dir = Path('../data')/value
+                    Config.save_dir.mkdir(exist_ok= True)
+                case other: 
+                    try: params[other] = value
+                    except KeyError: pass
+    
+    init_session(
+        int(params['-p']), 
+        *init_collisions_queue(
+            np.linspace(*Config.v_lims, int(params['--k-v'])), 
+            np.linspace(*Config.lamb_lims, int(params['--k-lamb']))
+        )
+    )
