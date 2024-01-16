@@ -162,8 +162,8 @@ class Lattice:
 
     Attributes
     ----------
-    axes: tuples[str, tuple]
-        The input informations.
+    axes: dict
+        An array containing the input informations.
     ranges: dict[str, ndarray]
         Nodes values obtained from the `axes` informations.
     shape: tuple[int]
@@ -182,14 +182,14 @@ class Lattice:
         return self.ranges[axis]
     
     @property
-    def shape(self):
+    def shape(self) -> tuple:
         return tuple(map(len, self.ranges.values()))
     
     @property
-    def grid(self):
+    def grid(self) -> np.ndarray:
         return np.stack(np.meshgrid(*tuple(self.ranges.values())), axis=-1)
     
-    def at(self, **locs) -> list[np.ndarray|Ellipsis]:
+    def at(self, **locs) -> list:
         '''
         Indices that provides the node(s) location, given position values.
 
@@ -209,7 +209,7 @@ class Lattice:
             for kw, X in self.ranges.items()
         ]
     
-    def window(self, **lims):
+    def window(self, **lims) -> list:
         '''
         Indices that provides a range on the lattice, given values for the axes limits.
 
@@ -254,16 +254,16 @@ class Kink:
         delta = (2/self.lamb)**0.5
         self._c = gamma/delta
 
-    def z(self, x: float|np.ndarray, t: float):
+    def z(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
         return self._c*(x - self.x0 - self.v*t)
     
-    def __call__(self, x: float|np.ndarray, t: float):
+    def __call__(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
         return np.tanh(self.z(x, t))
     
-    def dt(self, x: float|np.ndarray, t: float):
+    def dt(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
         return -self._c*self.v/np.cosh(self.z(x, t))**2
     
-    def initial_config(x: np.ndarray, lamb: float, x0s: tuple[float], vs: tuple[float], gnd: int=-1):
+    def initial_config(x: np.ndarray, lamb: float, x0s: tuple[float], vs: tuple[float], gnd: int=-1) -> np.ndarray:
         '''
         Statical function to get initial configuration for kink scattering simulations.
 
@@ -310,11 +310,11 @@ class KinkCollider:
     dt: float
 
     def __post_init__(self):
-        assert self.x_lattice.axis[0][0] == 'x', 'Set the axis name for "x"'
+        assert 'x' in tuple(self.x_lattice.ranges.keys()), 'Set the axis name for "x"'
         x0, xf, dx = self.x_lattice.axes['x']
         self.diff_dx = Diff(2, int(abs((xf - x0)/dx)), 5, dx)
     
-    def F(self, t: float, Y: np.ndarray, lamb: float):
+    def F(self, t: float, Y: np.ndarray, lamb: float) -> np.ndarray:
         '''
         ODEs system 
         $$
@@ -330,7 +330,7 @@ class KinkCollider:
             self.diff_dx(y) + lamb*y*(1 - y**2) # = ddy(t)
         ))
     
-    def collide(self, x0s: tuple[float], vs: tuple[float], lamb: float, t_final: float):
+    def collide(self, x0s: tuple[float], vs: tuple[float], lamb: float, t_final: float) -> np.ndarray:
         '''
         Run a collision.
 

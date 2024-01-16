@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from ..modules.numeric import *
+from .numeric import *
 
 @dataclass
 class Config:
@@ -9,13 +9,13 @@ class Config:
     dx: float = 2*L/N
     dt: float = 0.7*dx
 
-    x_lattice: float = Lattice(x=(-L, L, dx))
-    cm_index:  float = x_lattice.at(x=0)
+    x_lattice: Lattice = Lattice(x=(-L, L, dx))
+    cm_index:  list = field(default_factory=x_lattice.at(x=0))
 
     separation_by_delta: float = 10
 
 @dataclass
-class ColliderConfig(Config):
+class SessionConfig(Config):
     collider: KinkCollider = KinkCollider(x_lattice = Config.x_lattice, dt = Config.dt)
 
     v_min: float = 0.05
@@ -24,6 +24,9 @@ class ColliderConfig(Config):
     lamb_min: float = 0.075
     lamb_max: float = 50
 
+    dataset_name: str = 'dataset'
+    save_dir: Path = Path('../data')/dataset_name
+
     @property
     def v_lims(self):
         return self.v_min, self.v_max
@@ -31,8 +34,3 @@ class ColliderConfig(Config):
     @property
     def lamb_lims(self):
         return self.lamb_min, self.lamb_max
-
-@dataclass
-class SessionConfig(ColliderConfig):
-    dataset_name: str = 'dataset'
-    save_dir: Path = Path('../data')/dataset_name
