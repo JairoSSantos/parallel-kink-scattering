@@ -1,4 +1,6 @@
 import numpy as np
+from pandas import DataFrame
+import matplotlib.pyplot as plt
 from matplotlib.colors import *
 
 def linear_cmap(pcolors: tuple[str, float]):
@@ -30,3 +32,13 @@ def get_cmap():
         ('slateblue', 0.8),
         ('slategray', 1),
     ])(500)).reversed()
+
+def plot_series_percentile(data: DataFrame, x_col: str, y_col: str, percentile: tuple[float]=(5, 10, 25), 
+                           alpha: tuple[float]=(0.2, 0.4, 0.8), ax: plt.Axes=None, label_format: str='%(p)s-%(pf)s %%', **kwargs) -> None:
+    if ax == None: ax = plt.gca()
+    group = data[[x_col, y_col]].groupby(x_col)
+    for p, a in zip(percentile, alpha):
+        pf = 100-p
+        kwargs['label'] = label_format%{'p':str(p), 'pf':str(pf)}
+        kwargs['alpha'] = a
+        ax.fill_between(group.groups.keys(), np.squeeze(group.quantile(p/100).values), np.squeeze(group.quantile(pf/100).values), **kwargs)

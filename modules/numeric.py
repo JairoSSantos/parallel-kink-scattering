@@ -3,6 +3,7 @@ from math import factorial
 from dataclasses import dataclass
 from functools import partial
 from typing import Callable
+# from .default import Config
 
 def coefficients(m: int, alpha: np.ndarray[int]) -> np.ndarray:
     '''
@@ -288,6 +289,12 @@ class Kink:
             y0[0] += q*k(x, t=0)
             y0[1] += q*k.dt(x, t=0)
         return y0
+
+# class Collider:
+#     def __init__(self, L: float, dt: float):
+#         assert 'x' in tuple(self.x_lattice.ranges.keys()), 'Set the axis name for "x"'
+#         x0, xf, dx = self.x_lattice.axes['x']
+#         self.diff_dx = Diff(2, int(abs((xf - x0)/dx)), 5, dx)
 
 @dataclass
 class KinkCollider:
