@@ -2,10 +2,9 @@ import numpy as np
 from math import factorial
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable
-# from .default import Config
+from typing import Callable, Any
 
-def coefficients(m: int, alpha: np.ndarray[int]) -> np.ndarray:
+def diff_coeffs(m: int, stencil: tuple[int]) -> np.ndarray:
     '''
     Finite difference coefficients: considering that a function $f(x)$ can be differentiated as
     $$
@@ -18,7 +17,7 @@ def coefficients(m: int, alpha: np.ndarray[int]) -> np.ndarray:
     ----------
     m: int
         Derivative order.
-    alpha: ndarray[int]
+    stencil: ndarray[int]
         An 1-dimensional array containing the nodes location 
         that will be used on the differentiation.
     
@@ -27,15 +26,9 @@ def coefficients(m: int, alpha: np.ndarray[int]) -> np.ndarray:
     ndarray[float]
         Finite difference coefficients.
     '''
-    p = len(alpha)
-    A = np.zeros((p, p))
-    A[0].fill(1)
-    for k in range(1, p):
-        A[k] = alpha**k
-    return factorial(m)*np.linalg.inv(A)[:, m]
+    return factorial(m)*np.linalg.inv(np.r_[stencil][:, np.newaxis]**np.arange(len(stencil)))[m]
 
-@dataclass
-class Diff:
+def diff_matrix(m: int, n: int, order: int, h: float) -> np.ndarray:
     '''
     Discrete derivative.
 
@@ -45,49 +38,37 @@ class Diff:
         Derivative order.
     n: int
         Amount of the mesh nodes.
-    p: int
-        Amount of nodes that will be used to approximate the derivative value.
+    order: int
+        Error order of the approximation.
     h: float
         Space between the mesh nodes.
     
-    Attributes
+    Returns
     ----------
-    M: ndarray
-        Transformation matrix of the approximate derivative.
+    ndarray[float]
+        Differentiation matrix.
     '''
-    m: int
-    n: int
-    p: int
-    h: float
+    p = order + m
+    half_p = p//2
+    dp = 1 if p%2 else 0
+    stencil = np.arange(p)
+    central = diff_coeffs(m, stencil - half_p)
+    forward = diff_coeffs(m, stencil)
+    backward = diff_coeffs(m, -stencil)
+    D = np.full((n, n), 0)
+    for i in range(n):
+        try: D[i, i-p//2:i+p//2+dp] = central
+        except:
+            try: D[i, i:i+p] = forward
+            except: D[i, i-p+dp:i+dp] = backward
+    return D/h**m
 
-    def __post_init__(self) -> None:
-        assert self.n >= 2*self.p
-        P = np.arange(self.p)[np.newaxis].repeat(self.p, axis=0)
-        l = int(self.p/2)
-        d = int(l*2 != self.p)
-        C = np.stack([coefficients(self.m, alpha) for alpha in P - P.T])
-        M = np.zeros((self.n - 2*l, self.n))
-        for i in range(self.n - 2*l):
-            M[i, i:i+self.p] = C[l]
-        self.M = np.c_[ 
-            '0',
-            np.pad(C[:l], [(0, 0), (0, self.n - self.p)]),
-            M,
-            np.pad(C[l+d:], [(0, 0), (self.n - self.p, 0)]),
-        ]/(self.h**self.m)
-    
-    def __call__(self, y: np.ndarray) -> np.ndarray:
-        '''
-        calculates the respective derivative of the `y` applying the transformation matrix `M`.
+def argnearest(arr: np.ndarray, value: Any):
+    return np.abs(arr - value).argmin()
 
-        Parameters
-        ----------
-        y: ndarray
-            An 1-dimensional array containing sample of a scalar function.
-        '''
-        return self.M.dot(y)
-
-class RKSolver:
+def rk4_solve(F: Callable[[float, float|np.ndarray], float|np.ndarray], y0: float|np.ndarray, dt: float, t_final: float, t0: float=0, 
+               callbacks: tuple[Callable[[float, float|np.ndarray], float|np.ndarray]]=[],
+               stop_conditions: tuple[Callable[[float, float|np.ndarray], float|np.ndarray]]=[]):
     '''
     Runge-Kutta integration for a generalized ODEs system.
 
@@ -99,59 +80,38 @@ class RKSolver:
         The initial configuration $y_0=y(t_0)$.
     dt: float
         Mesh spacing of the independent variable.
+    t_final:
+        Final value for the independent variable.
     t0: float, optioal
         Initial independent variable value $t_0$. Default if `t0=0`.
-    
-    Attributes
-    ----------
-    y: ndarray
-        Result of the aready calculated integration.
-    t: ndarray
-        Range of the independent variable for the aready calculated solution.
+    callbacks: tuple[callable], optional
+        These will be called at each method iteration and have to recieve two parameters: 
+        `func(t, y)`, where `t` is the independent variable and `y` the result of the last method iteration.
+    stop_conditions: tuple[callable], optional
+        These will be called at each method iteration and have to recieve two parameters: 
+        `func(t, y)`, where `t` is the independent variable and `y` the result of the last method iteration. 
+        Furthermore, the functions return type have to be boolean so that any `True` return makes the iteration stops.
     '''
-    def __init__(self, F: Callable[[float, float|np.ndarray], float|np.ndarray], y0: float|np.ndarray, dt: float, t0: float=0) -> None:
-        self.dt = dt
-        self.F = F
-        self._y = [y0]
-        self._t = [t0]
+    _y = [y0]
+    _t = np.arange(t0, t_final, dt)
+    for t in _t:
+        y = _y[-1]
+        for func in callbacks: func(t, y)
 
-    def step(self) -> None:
-        '''
-        Solve just one step $y(t + dt)$.
-        '''
-        t = self._t[-1]
-        y = self._y[-1]
-        dt = self.dt
+        stop = False
+        for func in stop_conditions: 
+            if func(t, y):
+                _t = np.arange(t0, t, dt)
+                stop = True
+                break
+        if stop: break
 
-        k1 = self.F(t, y)
-        k2 = self.F(t + dt/2, y + k1*dt/2)
-        k3 = self.F(t + dt/2, y + k2*dt/2)
-        k4 = self.F(t + dt, y + k3*dt)
-
-        self._y.append(
-            y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)
-        )
-        self._t.append(t + dt)
-
-    def run_util(self, T: float) -> None:
-        '''
-        Run the `step` method util a final value for the independent variable: `t[-1] = T`.
-
-        Parameters
-        ----------
-        T: float
-            Final value for the independent variable.
-        '''
-        while self._t[-1] < T:
-            self.step()
-
-    @property
-    def y(self) -> np.ndarray:
-        return np.stack(self._y)
-
-    @property
-    def t(self) -> np.ndarray:
-        return np.stack(self._t)
+        k1 = F(t, y)
+        k2 = F(t + dt/2, y + k1*dt/2)
+        k3 = F(t + dt/2, y + k2*dt/2)
+        k4 = F(t + dt, y + k3*dt)
+        _y.append(y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4))
+    return _t, np.r_[_y]
 
 class Lattice:
     '''
@@ -174,21 +134,21 @@ class Lattice:
     '''
     def __init__(self, **axes):
         self.axes = axes
-        self.ranges = {kw:np.arange(xl, xr, dx) for kw, (xl, xr, dx) in axes.items()}
+        # self.ranges = {kw:np.arange(xl, xr, dx) for kw, (xl, xr, dx) in axes.items()}
     
     def __getattr__(self, kw):
-        return self.ranges[kw]
+        return self.axes[kw]
     
     def __getitem__(self, axis):
-        return self.ranges[axis]
+        return self.axes[axis]
     
     @property
     def shape(self) -> tuple:
-        return tuple(map(len, self.ranges.values()))
+        return tuple(map(len, self.axes.values()))
     
     @property
     def grid(self) -> np.ndarray:
-        return np.stack(np.meshgrid(*tuple(self.ranges.values())), axis=-1)
+        return np.stack(np.meshgrid(*tuple(self.axes.values())), axis=-1)
     
     def at(self, **locs) -> list:
         '''
@@ -206,8 +166,8 @@ class Lattice:
         '''
         kws = tuple(locs.keys())
         return [
-            np.abs(X - locs[kw]).argmin() if kw in kws else Ellipsis 
-            for kw, X in self.ranges.items()
+            argnearest(axis, locs[kw]) if kw in kws else Ellipsis 
+            for kw, axis in self.axes.items()
         ]
     
     def window(self, **lims) -> list:
@@ -226,10 +186,9 @@ class Lattice:
         '''
         kws = tuple(lims.keys())
         return [
-            slice(np.abs(X - lims[kw][0]).argmin(), 
-                  np.abs(X - lims[kw][1]).argmin())
+            slice(argnearest(axis, lims[kw][0]), argnearest(axis, lims[kw][1]))
             if kw in kws else Ellipsis 
-            for kw, X in self.ranges.items()
+            for kw, axis in self.axes.items()
         ]
 
 @dataclass
@@ -261,40 +220,8 @@ class Kink:
     def __call__(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
         return np.tanh(self.z(x, t))
     
-    def dt(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
+    def diff_dt(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
         return -self._c*self.v/np.cosh(self.z(x, t))**2
-    
-    def initial_config(x: np.ndarray, lamb: float, x0s: tuple[float], vs: tuple[float], gnd: int=-1) -> np.ndarray:
-        '''
-        Statical function to get initial configuration for kink scattering simulations.
-
-        Parameters
-        ----------
-        x: ndarray
-            Spatial array values.
-        lamb: float
-            The $\lambda$ factor.
-        x0s: tuple[float]
-            Initial positions of the kinks.
-        vs: tuple[float]
-            Inivial velocitys of the kinks.
-        gnd: int
-            Field state at left of the spatial range in the initial instant.
-        '''
-        y0 = np.zeros((2, x.shape[0]))
-        y0[0].fill(gnd)
-        for i, j in enumerate(np.argsort(x0s)):
-            q = gnd*(-1)**(i + 1)
-            k = Kink(x0s[j], vs[j], lamb)
-            y0[0] += q*k(x, t=0)
-            y0[1] += q*k.dt(x, t=0)
-        return y0
-
-# class Collider:
-#     def __init__(self, L: float, dt: float):
-#         assert 'x' in tuple(self.x_lattice.ranges.keys()), 'Set the axis name for "x"'
-#         x0, xf, dx = self.x_lattice.axes['x']
-#         self.diff_dx = Diff(2, int(abs((xf - x0)/dx)), 5, dx)
 
 @dataclass
 class KinkCollider:
@@ -305,6 +232,8 @@ class KinkCollider:
     ----------
     x_lattice: Lattice
         The spatial lattice objetc, ensure that the lattice have an axis with "x" name.
+    x0s: tuple[float]
+            Initial positions of the kinks.
     dt: float
         Temporal grid spacing.
     
@@ -313,13 +242,13 @@ class KinkCollider:
     diff_dx: ndarray
         A matrix that provides the second derivative on the space axis, given the `x_lattice` informations.
     '''
-    x_lattice: Lattice # (x0, xf, dx)
+    x: np.ndarray
+    x0s: tuple[float]
     dt: float
+    order: int=4
 
     def __post_init__(self):
-        assert 'x' in tuple(self.x_lattice.ranges.keys()), 'Set the axis name for "x"'
-        x0, xf, dx = self.x_lattice.axes['x']
-        self.diff_dx = Diff(2, int(abs((xf - x0)/dx)), 5, dx)
+        self.diff_dx = diff_matrix(2, len(self.x), self.order, self.x[1]-self.x[0])
     
     def F(self, t: float, Y: np.ndarray, lamb: float) -> np.ndarray:
         '''
@@ -334,25 +263,32 @@ class KinkCollider:
         y, dy_dt = Y
         return np.stack((
             dy_dt, # = dy(t)
-            self.diff_dx(y) + lamb*y*(1 - y**2) # = ddy(t)
+            self.diff_dx.dot(y) + lamb*y*(1 - y**2) # = ddy(t)
         ))
     
-    def collide(self, x0s: tuple[float], vs: tuple[float], lamb: float, t_final: float) -> np.ndarray:
+    def collide(self, vs: tuple[float], lamb: float, t_final: float, gnd: int=-1, **rk4_kwargs) -> np.ndarray:
         '''
         Run a collision.
 
         Parameters
         ----------
-        x0s: tuple[float]
-            Initial positions of the kinks.
         vs: tuple[float]
             Inivial velocitys of the kinks.
         lamb: float
             The $\lambda$ factor.
         t_final: float
             Final value for the time.
+        gnd: int
+            Field state at left of the spatial range in the initial instant.
         '''
-        y0 = Kink.initial_config(self.x_lattice.x, lamb, x0s, vs, gnd=-1)
-        solver = RKSolver(partial(self.F, lamb=lamb), y0, self.dt)
-        solver.run_util(t_final)
-        return solver.y[:, 0]
+        y0 = np.zeros((2, len(self.x)))
+        y0[0].fill(gnd)
+        for i, j in enumerate(np.argsort(self.x0s)):
+            q = gnd*(-1)**(i + 1)
+            k = Kink(self.x0s[j], vs[j], lamb)
+            y0[0] += q*k(self.x, t=0)
+            y0[1] += q*k.diff_dt(self.x, t=0)
+        
+        t, y = rk4_solve(partial(self.F, lamb=lamb), y0, self.dt, t_final, **rk4_kwargs)
+
+        return Lattice(x=self.x, t=t), y
