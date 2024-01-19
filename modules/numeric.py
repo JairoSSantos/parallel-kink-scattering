@@ -1,5 +1,5 @@
 import numpy as np
-from math import factorial
+from math import factorial, sqrt
 from dataclasses import dataclass
 from functools import partial
 from typing import Callable, Any
@@ -119,22 +119,19 @@ class Lattice:
 
     Parameters
     ----------
-    **axes: The axes names with that's range informations, like `x = (initial_value, final_value, spacing)`.
+    **axes: The axes names with that's range array, `x = np.arange(initial_value, final_value, spacing)`.
 
     Attributes
     ----------
     axes: dict
-        An array containing the input informations.
-    ranges: dict[str, ndarray]
-        Nodes values obtained from the `axes` informations.
+        A dict containing the axes ranges
     shape: tuple[int]
         The lattice shape.
     grid: ndarray
-        A `len(axes)`-dimansional array with the lattice nodes locations.
+        A n-dimensional array with the lattice nodes locations.
     '''
     def __init__(self, **axes):
         self.axes = axes
-        # self.ranges = {kw:np.arange(xl, xr, dx) for kw, (xl, xr, dx) in axes.items()}
     
     def __getattr__(self, kw):
         return self.axes[kw]
@@ -210,18 +207,20 @@ class Kink:
     lamb: float
 
     def __post_init__(self):
-        gamma = 1/(1 - self.v**2)**0.5
-        delta = (2/self.lamb)**0.5
-        self._c = gamma/delta
+        gamma = 1/sqrt(1 - self.v**2)
+        self._const = gamma/Kink.delta(self.lamb)
 
     def z(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
-        return self._c*(x - self.x0 - self.v*t)
+        return self._const*(x - self.x0 - self.v*t)
     
     def __call__(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
         return np.tanh(self.z(x, t))
     
     def diff_dt(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
-        return -self._c*self.v/np.cosh(self.z(x, t))**2
+        return -self._const*self.v/np.cosh(self.z(x, t))**2
+    
+    def delta(lamb: float):
+        return sqrt(2/lamb)
 
 @dataclass
 class KinkCollider:
@@ -248,7 +247,7 @@ class KinkCollider:
     order: int=4
 
     def __post_init__(self):
-        self.diff_dx = diff_matrix(2, len(self.x), self.order, self.x[1]-self.x[0])
+        self.D2x = diff_matrix(2, len(self.x), self.order, self.x[1]-self.x[0])
     
     def F(self, t: float, Y: np.ndarray, lamb: float) -> np.ndarray:
         '''
@@ -263,7 +262,7 @@ class KinkCollider:
         y, dy_dt = Y
         return np.stack((
             dy_dt, # = dy(t)
-            self.diff_dx.dot(y) + lamb*y*(1 - y**2) # = ddy(t)
+            self.D2x.dot(y) + lamb*y*(1 - y**2) # = ddy(t)
         ))
     
     def collide(self, vs: tuple[float], lamb: float, t_final: float, gnd: int=-1, **rk4_kwargs) -> np.ndarray:
@@ -292,3 +291,15 @@ class KinkCollider:
         t, y = rk4_solve(partial(self.F, lamb=lamb), y0, self.dt, t_final, **rk4_kwargs)
 
         return Lattice(x=self.x, t=t), y
+    
+    def fixed_boundary(n: int, y_value: float=-1, dy_value: float=0) -> Callable:
+        def glue(t: float, Y: np.ndarray):
+            Y[1, :n].fill(dy_value)
+            Y[1, -n:].fill(dy_value)
+            Y[0, :n].fill(y_value)
+            Y[0, -n:].fill(y_value)
+
+        return glue
+    
+    def overflowed(t: float, Y: np.ndarray) -> bool:
+        return np.any(np.isnan(Y))

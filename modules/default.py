@@ -9,10 +9,10 @@ class Config:
     dx: float = 2*L/N
     dt: float = 0.7*dx
 
-    x_lattice: Lattice = Lattice(x=(-L, L, dx))
+    x_lattice: Lattice = Lattice(x=np.arange(-L, L, dx))
     cm_index:  list = field(default_factory=x_lattice.at(x=0))
 
-    separation_by_delta: float = 10
+    sep_by_delta: float = 10
 
 @dataclass
 class SessionConfig(Config):
