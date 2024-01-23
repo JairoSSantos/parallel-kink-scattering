@@ -12,23 +12,42 @@ from pathlib import Path
 from os import cpu_count
 from .numeric import *
 
-INFO_FILE = 'session-info.json'
-FPARAMS = ('v', 'lamb', 'exec_time', 'delay')
+PREFIX = 'session'
+INFO_FILE = f'{PREFIX}-info.json'
+FPARAMS = ('v', 'lamb', 'exec_time', 'delay', 'n_processes')
 
 def read_path_info(path: Path) -> dict[str, float]:
     return dict(zip(FPARAMS, map(float, path.stem.split('-'))))
 
-def get_session_info(session_path):
-    summary = []
-    info = []
-    for session in session_path.glob('session-*'):
-        summary.append(pd.DataFrame([{'path':path, **read_path_info(path)} for path in session.glob('*.csv')]))
+def get_data_sessions(ds_path):
+    sessions = []
+    summaries = []
+    for session in ds_path.glob(f'{PREFIX}-*'):
+        summaries.append(pd.DataFrame([{'path':path, **read_path_info(path)} for path in session.glob('*.csv')]))
         with open(session/INFO_FILE, 'r') as json_file:
-            info.append(pd.Series(json.loads(json_file.read())))
-    return summary, info
+            info = json.loads(json_file.read())
+        info['n_files'] = len(summaries[-1])
+        sessions.append(info)
+    return pd.DataFrame(sessions), summaries
 
 def triangular(n):
     return n*(n + 1)/2
+
+class Dataset:
+    def __init__(self, ds_path: Path):
+        self.sessions, self.summaries = get_data_sessions(ds_path)
+    
+    def __repr__(self) -> pd.Series:
+        return repr(self.sessions)
+
+    def __getitem__(self, i: int|str) -> pd.DataFrame:
+        if type(i) == int:
+            return self.summaries[i]
+        else:
+            return self.sessions[i]
+    
+    def __getattr__(self, attr: str) -> pd.Series:
+        return getattr(self.sessions, attr)
 
 @dataclass
 class CollisionSession:
@@ -62,7 +81,7 @@ class CollisionSession:
         self.collider = KinkCollider(self.x, (None, None), self.dt)
         self.cm_index = argnearest(self.x, 0)
 
-        name = datetime.now().strftime('session-%Y-%m-%d-%H-%M-%S')
+        name = datetime.now().strftime(f'{PREFIX}-%Y-%m-%d-%H-%M-%S')
         self.save_dir = self.session_path/name
         self.save_dir.mkdir(parents=True, exist_ok=True)
         self._create_logger()
