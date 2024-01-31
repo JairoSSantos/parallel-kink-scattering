@@ -1,10 +1,11 @@
 import numpy as np
-from math import factorial, sqrt
+from sympy import Matrix
+from math import factorial, sqrt, ceil
 from dataclasses import dataclass
 from functools import partial
 from typing import Callable, Any
 
-def diff_coeffs(m: int, stencil: tuple[int]) -> np.ndarray:
+def diff_coeffs(m: int, offsets: tuple[int]) -> np.ndarray:
     '''
     Finite difference coefficients: considering that a function $f(x)$ can be differentiated as
     $$
@@ -17,7 +18,7 @@ def diff_coeffs(m: int, stencil: tuple[int]) -> np.ndarray:
     ----------
     m: int
         Derivative order.
-    stencil: ndarray[int]
+    offsets: ndarray[int]
         An 1-dimensional array containing the nodes location 
         that will be used on the differentiation.
     
@@ -26,7 +27,9 @@ def diff_coeffs(m: int, stencil: tuple[int]) -> np.ndarray:
     ndarray[float]
         Finite difference coefficients.
     '''
-    return factorial(m)*np.linalg.inv(np.r_[stencil][:, np.newaxis]**np.arange(len(stencil)))[m]
+    offsets = np.r_[offsets]
+    A = Matrix(offsets[:, np.newaxis]**np.arange(len(offsets)))
+    return factorial(m)*np.r_[A.inv()][m].astype(float)
 
 def diff_matrix(m: int, n: int, order: int, h: float) -> np.ndarray:
     '''
@@ -49,25 +52,23 @@ def diff_matrix(m: int, n: int, order: int, h: float) -> np.ndarray:
         Differentiation matrix.
     '''
     p = order + m
-    half_p = p//2
-    dp = 1 if p%2 else 0
-    stencil = np.arange(p)
-    central = diff_coeffs(m, stencil - half_p)
-    forward = diff_coeffs(m, stencil)
-    backward = diff_coeffs(m, -stencil)
-    D = np.full((n, n), 0)
+    phalf = p//2
+    offsets = np.arange(p)
+    central = diff_coeffs(m, offsets - phalf)
+    forward = diff_coeffs(m, offsets)
+    backward = diff_coeffs(m, -offsets[::-1])
+    M = np.zeros((n, n))
     for i in range(n):
-        try: D[i, i-p//2:i+p//2+dp] = central
-        except:
-            try: D[i, i:i+p] = forward
-            except: D[i, i-p+dp:i+dp] = backward
-    return D/h**m
+        if i < phalf: M[i, i:i+p] = forward
+        elif i > n-ceil(p/2): M[i, i-p+1:i+1] = backward
+        else: M[i, i-phalf:i+ceil(p/2)] = central
+    return M/h**m
 
 def argnearest(arr: np.ndarray, value: Any):
     return np.abs(arr - value).argmin()
 
 def rk4_solve(F: Callable[[float, float|np.ndarray], float|np.ndarray], y0: float|np.ndarray, dt: float, t_final: float, t0: float=0, 
-               callbacks: tuple[Callable[[float, float|np.ndarray], float|np.ndarray]]=[],
+               callback: Callable[[float, float|np.ndarray], float|np.ndarray]=(lambda t, y: y),
                stop_conditions: tuple[Callable[[float, float|np.ndarray], float|np.ndarray]]=[]):
     '''
     Runge-Kutta integration for a generalized ODEs system.
@@ -84,24 +85,24 @@ def rk4_solve(F: Callable[[float, float|np.ndarray], float|np.ndarray], y0: floa
         Final value for the independent variable.
     t0: float, optioal
         Initial independent variable value $t_0$. Default if `t0=0`.
-    callbacks: tuple[callable], optional
-        These will be called at each method iteration and have to recieve two parameters: 
-        `func(t, y)`, where `t` is the independent variable and `y` the result of the last method iteration.
+    callback: callable, optional
+        A `func(t, y)` that will be called at each method iteration 
+        and have to recieve `t`, the independent variable, and `y`, the result of the last method iteration.
+        The function output have to be the modified `y`: `func(t, y) -> y`.
     stop_conditions: tuple[callable], optional
         These will be called at each method iteration and have to recieve two parameters: 
         `func(t, y)`, where `t` is the independent variable and `y` the result of the last method iteration. 
         Furthermore, the functions return type have to be boolean so that any `True` return makes the iteration stops.
     '''
-    _y = [y0]
-    _t = np.arange(t0, t_final, dt)
-    for t in _t:
-        y = _y[-1]
-        for func in callbacks: func(t, y)
+    Y = [y0]
+    T = np.arange(t0, t_final, dt)
+    for t in T:
+        y = Y[-1]
 
         stop = False
         for func in stop_conditions: 
-            if func(t, y):
-                _t = np.arange(t0, t, dt)
+            if func(t, Y[-1]):
+                T = np.arange(t0, t, dt)
                 stop = True
                 break
         if stop: break
@@ -110,8 +111,9 @@ def rk4_solve(F: Callable[[float, float|np.ndarray], float|np.ndarray], y0: floa
         k2 = F(t + dt/2, y + k1*dt/2)
         k3 = F(t + dt/2, y + k2*dt/2)
         k4 = F(t + dt, y + k3*dt)
-        _y.append(y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4))
-    return _t, np.r_[_y]
+        Y.append(callback(t, y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)))
+
+    return T, np.r_[Y]
 
 class Lattice:
     '''
@@ -241,13 +243,14 @@ class KinkCollider:
     diff_dx: ndarray
         A matrix that provides the second derivative on the space axis, given the `x_lattice` informations.
     '''
-    x: np.ndarray
+    x_range: tuple[float]
     x0s: tuple[float]
     dt: float
     order: int=4
 
     def __post_init__(self):
-        self.D2x = diff_matrix(2, len(self.x), self.order, self.x[1]-self.x[0])
+        self.x = np.arange(*self.x_range)
+        self.D2x = diff_matrix(2, len(self.x), self.order, self.x_range[-1])
     
     def F(self, t: float, Y: np.ndarray, lamb: float) -> np.ndarray:
         '''
@@ -291,15 +294,24 @@ class KinkCollider:
         t, y = rk4_solve(partial(self.F, lamb=lamb), y0, self.dt, t_final, **rk4_kwargs)
 
         return Lattice(x=self.x, t=t), y
-    
-    def fixed_boundary(n: int, y_value: float=-1, dy_value: float=0) -> Callable:
-        def glue(t: float, Y: np.ndarray):
-            Y[1, :n].fill(dy_value)
-            Y[1, -n:].fill(dy_value)
-            Y[0, :n].fill(y_value)
-            Y[0, -n:].fill(y_value)
 
-        return glue
+    def neumann_boundary(n: int , y: float|tuple[float], dy: float|tuple[float]=0):
+        if y != None:
+            try: len(y)
+            except TypeError: y = (y, y)
+        if dy != None:
+            try: len(dy)
+            except TypeError: dy = (dy, dy)
+
+        def boundary(t: float, Y: np.ndarray):
+            if dy != None:
+                Y[1, n], Y[1, -n-1] = dy
+            if y != None:
+                Y[0, n], Y[0, -n-1] = y
+            Y[0, -n:] = Y[0, -2*n-1:-n-1][::-1]
+            Y[0, :n] = Y[0, n+1:2*n+1][::-1]
+            return Y
+        return boundary
     
     def overflowed(t: float, Y: np.ndarray) -> bool:
         return np.any(np.isnan(Y))
