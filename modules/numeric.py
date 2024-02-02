@@ -1,11 +1,12 @@
 import numpy as np
 from sympy import Matrix
-from math import factorial, sqrt, ceil
+from math import factorial, sqrt
+from scipy.ndimage import convolve1d
 from dataclasses import dataclass
 from functools import partial
 from typing import Callable, Any
 
-def diff_coeffs(m: int, offsets: tuple[int]) -> np.ndarray:
+def diff_coeffs(m: int, offsets: tuple[int], h: float=1) -> np.ndarray:
     '''
     Finite difference coefficients: considering that a function $f(x)$ can be differentiated as
     $$
@@ -21,6 +22,8 @@ def diff_coeffs(m: int, offsets: tuple[int]) -> np.ndarray:
     offsets: ndarray[int]
         An 1-dimensional array containing the nodes location 
         that will be used on the differentiation.
+    h: float, optional
+        Space between the mesh nodes. Default is 1.
     
     Attributes
     ----------
@@ -29,40 +32,40 @@ def diff_coeffs(m: int, offsets: tuple[int]) -> np.ndarray:
     '''
     offsets = np.r_[offsets]
     A = Matrix(offsets[:, np.newaxis]**np.arange(len(offsets)))
-    return factorial(m)*np.r_[A.inv()][m].astype(float)
+    return factorial(m)*np.r_[A.inv()][m].astype(float)/h**m
 
-def diff_matrix(m: int, n: int, order: int, h: float) -> np.ndarray:
-    '''
-    Discrete derivative.
+# def diff_matrix(m: int, n: int, order: int, h: float) -> np.ndarray:
+#     '''
+#     Discrete derivative.
 
-    Parameters
-    ----------
-    m: int
-        Derivative order.
-    n: int
-        Amount of the mesh nodes.
-    order: int
-        Error order of the approximation.
-    h: float
-        Space between the mesh nodes.
+#     Parameters
+#     ----------
+#     m: int
+#         Derivative order.
+#     n: int
+#         Amount of the mesh nodes.
+#     order: int
+#         Error order of the approximation.
+#     h: float
+#         Space between the mesh nodes.
     
-    Returns
-    ----------
-    ndarray[float]
-        Differentiation matrix.
-    '''
-    p = order + m
-    phalf = p//2
-    offsets = np.arange(p)
-    central = diff_coeffs(m, offsets - phalf)
-    forward = diff_coeffs(m, offsets)
-    backward = diff_coeffs(m, -offsets[::-1])
-    M = np.zeros((n, n))
-    for i in range(n):
-        if i < phalf: M[i, i:i+p] = forward
-        elif i > n-ceil(p/2): M[i, i-p+1:i+1] = backward
-        else: M[i, i-phalf:i+ceil(p/2)] = central
-    return M/h**m
+#     Returns
+#     ----------
+#     ndarray[float]
+#         Differentiation matrix.
+#     '''
+#     p = order + m
+#     phalf = p//2
+#     offsets = np.arange(p)
+#     central = diff_coeffs(m, offsets - phalf)
+#     forward = diff_coeffs(m, offsets)
+#     backward = diff_coeffs(m, -offsets[::-1])
+#     M = np.zeros((n, n))
+#     for i in range(n):
+#         if i < phalf: M[i, i:i+p] = forward
+#         elif i > n-ceil(p/2): M[i, i-p+1:i+1] = backward
+#         else: M[i, i-phalf:i+ceil(p/2)] = central
+#     return M/h**m
 
 def argnearest(arr: np.ndarray, value: Any):
     return np.abs(arr - value).argmin()
@@ -250,7 +253,8 @@ class KinkCollider:
 
     def __post_init__(self):
         self.x = np.arange(*self.x_range)
-        self.D2x = diff_matrix(2, len(self.x), self.order, self.x_range[-1])
+        p = self.order + 2
+        self.D2x = diff_coeffs(2, np.arange(p) - p//2, h=self.x_range[-1])
     
     def F(self, t: float, Y: np.ndarray, lamb: float) -> np.ndarray:
         '''
@@ -265,7 +269,7 @@ class KinkCollider:
         y, dy_dt = Y
         return np.stack((
             dy_dt, # = dy(t)
-            self.D2x.dot(y) + lamb*y*(1 - y**2) # = ddy(t)
+            convolve1d(y, self.D2x, mode='reflect') + lamb*y*(1 - y**2) # = ddy(t)
         ))
     
     def collide(self, vs: tuple[float], lamb: float, t_final: float, gnd: int=-1, **rk4_kwargs) -> np.ndarray:
