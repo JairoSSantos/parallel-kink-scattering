@@ -1,6 +1,6 @@
 import numpy as np
 import sympy as sp
-from math import factorial
+from math import factorial, sqrt, acosh, asinh
 from scipy.ndimage import convolve1d
 from dataclasses import dataclass
 from functools import partial
@@ -88,9 +88,26 @@ def delta(lamb: float|int) -> float:
 def kink(x0: float|int, v: float|int, lamb: float|int):
     gamma = 1/np.sqrt(1 - v**2)
     c1 = gamma/delta(lamb)
-    x, t =sp.symbols('x, t')
+    x, t = sp.symbols('x, t')
     z = c1*(x - x0 - v*t)
-    return sp.tanh(z)
+    return Field((x, t), sp.tanh(z))
+
+def kink_boundary(x0: float, v: float, lamb: float, H: float):
+    gamma = 1/np.sqrt(1 - v**2)
+    c1 = gamma/delta(lamb)
+
+    x, t = sp.symbols('x, t')
+    z = c1*(x - x0 - v*t)
+    phi = sp.tanh(z)
+
+    if H < 0:
+        X0 = acosh(1/sqrt(abs(H)))
+        phi_mod = sp.tanh(x - X0)
+    else:
+        X1 = asinh(1/sqrt(abs(H)))
+        phi_mod = 1/sp.tanh(x - X1)
+
+    return Field((x, t), phi_mod - phi + 1)
 
 class Lattice:
     '''
@@ -167,39 +184,33 @@ class Lattice:
             for kw, axis in self.axes.items()
         ]
 
-@dataclass
-class Kink:
-    '''
-    An object for kinks properties.
-
-    Parameters
-    ----------
-    x0: float
-        The kink location.
-    v: float
-        The kink velocity.
-    lamb: float
-        The $\lambda$ factor, that is correlated to the kink thickness.
-    '''
-    x0: float
-    v: float
-    lamb: float
-
-    def __post_init__(self):
-        gamma = 1/sqrt(1 - self.v**2)
-        self._const = gamma/Kink.delta(self.lamb)
-
-    def z(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
-        return self._const*(x - self.x0 - self.v*t)
+class Field:
+    def __init__(self, x, y):
+        self.y = y
+        self.x = x
+        self._func = sp.lambdify(self.x, self.y, 'numpy')
     
-    def call(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
-        return np.tanh(self.z(x, t))
+    def __call__(self, *x):
+        return self._func(*x)
     
-    def diff_dt(self, x: float|np.ndarray, t: float) -> float|np.ndarray:
-        return -self._const*self.v/np.cosh(self.z(x, t))**2
+    def __add__(self, obj):
+        if type(obj) == Field: obj = obj.y
+        return Field(self.x, self.y + obj)
     
-    def delta(lamb: float):
-        return sqrt(2/lamb)
+    def __sub__(self, obj):
+        if type(obj) == Field: obj = obj.y
+        return Field(self.x, self.y - obj)
+    
+    def __mul__(self, obj):
+        if type(obj) == Field: obj = obj.y
+        return Field(self.x, self.y*obj)
+    
+    def __truediv__(self, obj):
+        if type(obj) == Field: obj = obj.y
+        return Field(self.x, self.y/obj)
+    
+    def diff(self, var_index: int):
+        return Field(self.x, self.y.diff(self.x[var_index]))
 
 @dataclass
 class KinkCollider:
@@ -227,6 +238,7 @@ class KinkCollider:
     dt: float
     dx: int=None
     order: int=4
+    H: float=0
 
     def __post_init__(self):
         self.x = np.linspace(self.x_min, self.x_max, self.Nx)
@@ -241,13 +253,26 @@ class KinkCollider:
         '''
         def F(t: float, Y: np.ndarray):
             y, dy_dt = Y
+            # y_reflected = np.r_[y[1:self._j+1][::-1], y, y[-self._j-1:-1][::-1]]
+            # d2x_y = np.convolve(y_reflected, self.D2x, mode='valid')
 
-            # y[0], y[-1] = y1, y2
-            y_reflected = np.r_[y[1:self._j+1][::-1], y, y[-self._j-1:-1][::-1]]
+            y_reflected = np.r_[y, y[-self._j-1:-1][::-1]]
+            d2x_y = np.r_[
+                -(85*y[0] - 108*y[1] + 27*y[2] - 4*y[3] + 66*self.dx*self.H)/(18*self.dx**2),
+                (29*y[0] - 54*y[1] + 27*y[2] - 2*y[3] + 6*self.dx*self.H)/(18*self.dx**2),
+                np.convolve(y_reflected, self.D2x, mode='valid'),
+            ]
+
+            # y_reflected = np.r_[y, y[-self._j-1:-1][::-1]]
+            # d2x_y = np.r_[
+            #     (self.H*self.dx - 3*y[0] + y[1])/self.dx**2,
+            #     (y[0] - 2*y[1] + y[2])/self.dx**2,
+            #     np.convolve(y_reflected, self.D2x, mode='valid'),
+            # ]
 
             return np.stack((
                 dy_dt, # = dy(t)
-                np.convolve(y_reflected, self.D2x, mode='valid') + lamb*y*(1 - y**2) # = ddy(t)
+                d2x_y + lamb*y*(1 - y**2) # = ddy(t)
             ))
         return F
     
@@ -266,18 +291,9 @@ class KinkCollider:
         gnd: int
             Field state at left of the spatial range in the initial instant.
         '''
-        # y0 = np.zeros((2, len(self.x)))
-        # y0[0].fill(gnd)
-        # for i, j in enumerate(np.argsort(self.x0s)):
-        #     q = gnd*(-1)**(i + 1)
-        #     k = Kink(self.x0s[j], vs[j], lamb)
-        #     y0[0] += q*k(self.x, t=0)
-        #     y0[1] += q*k.diff_dt(self.x, t=0)
-
         field = kink(self.x0s[0], vs[0], lamb) - kink(self.x0s[1], vs[1], lamb) - 1
-        x, t =sp.symbols('x, t')
-        phi = sp.lambdify(x, field.subs({t: 0}), 'numpy')
-        phi_dt = sp.lambdify(x, field.diff(t).subs({t: 0}), 'numpy')
+        phi = lambda x: field(x, 0)
+        phi_dt = lambda x: field.diff(1)(x, 0)
         y0 = np.stack((
             phi(self.x), 
             phi_dt(self.x)
