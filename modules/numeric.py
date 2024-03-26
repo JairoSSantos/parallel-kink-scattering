@@ -1,6 +1,6 @@
 import numpy as np
 import sympy as sp
-from math import factorial, sqrt, acosh, asinh
+from math import factorial, sqrt, acosh, asinh, atanh
 from scipy.ndimage import convolve1d
 from dataclasses import dataclass
 from functools import partial
@@ -100,7 +100,7 @@ def kink_boundary(x0: float, v: float, lamb: float, H: float):
     z = c1*(x - x0 - v*t)
     phi = sp.tanh(z)
 
-    if H < 0:
+    if H > 0:
         X0 = acosh(1/sqrt(abs(H)))
         phi_mod = sp.tanh(x - X0)
     else:
@@ -258,8 +258,8 @@ class KinkCollider:
 
             y_reflected = np.r_[y, y[-self._j-1:-1][::-1]]
             d2x_y = np.r_[
-                -(85*y[0] - 108*y[1] + 27*y[2] - 4*y[3] + 66*self.dx*self.H)/(18*self.dx**2),
-                (29*y[0] - 54*y[1] + 27*y[2] - 2*y[3] + 6*self.dx*self.H)/(18*self.dx**2),
+                -(85*y[0] - 108*y[1] + 27*y[2] - 4*y[3] - 66*self.dx*self.H)/(18*self.dx**2), # erro na interpolação !!
+                (29*y[0] - 54*y[1] + 27*y[2] - 2*y[3] - 6*self.dx*self.H)/(18*self.dx**2),
                 np.convolve(y_reflected, self.D2x, mode='valid'),
             ]
 
