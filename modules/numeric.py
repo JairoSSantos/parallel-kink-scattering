@@ -252,7 +252,7 @@ class KinkCollider:
         ODEs system.
         '''
         def F(t: float, Y: np.ndarray):
-            y, dy_dt = Y
+            y, dy = Y
             # y_reflected = np.r_[y[1:self._j+1][::-1], y, y[-self._j-1:-1][::-1]]
             # d2x_y = np.convolve(y_reflected, self.D2x, mode='valid')
 
@@ -265,13 +265,13 @@ class KinkCollider:
 
             # y_reflected = np.r_[y, y[-self._j-1:-1][::-1]]
             # d2x_y = np.r_[
-            #     (self.H*self.dx - 3*y[0] + y[1])/self.dx**2,
-            #     (y[0] - 2*y[1] + y[2])/self.dx**2,
+            #     (- 66*self.dx*self.H + 14*y[1] + 11*y[2] - 58*y[3])/(36*self.dx**2),
+            #     (6*self.dx*self.H - 2*y[1] + 1*y[2] + 10*y[3])/(2*self.dx**2),
             #     np.convolve(y_reflected, self.D2x, mode='valid'),
             # ]
 
             return np.stack((
-                dy_dt, # = dy(t)
+                dy, # = dy(t)
                 d2x_y + lamb*y*(1 - y**2) # = ddy(t)
             ))
         return F

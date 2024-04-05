@@ -25,9 +25,10 @@ def get_cmap():
     return ListedColormap(linear_cmap([
         ('white', 0),
         ('khaki', 0.1),
-        ('darkorange', 0.3),
+        ('darkorange', 0.2),
+        ('gold', 0.3),
         ('firebrick', 0.4),
-        ('indigo', 0.6),
+        ('indigo', 0.5),
         ('skyblue', 0.7),
         ('slateblue', 0.8),
         ('slategray', 1),
