@@ -265,8 +265,8 @@ class KinkCollider:
 
             y_reflected = np.r_[y, y[-self._j-1:-1][::-1]]
             d2x_y = np.r_[
-                (35*self.H - 104*y[1] + 114*y[2] - 56*y[3] + 11*y[4])/(12*self.dx**2),
-                (11*self.H - 20*y[1] + 6*y[2] + 4*y[3] - y[4])/(12*self.dx**2),
+                (35*self.H - 104*y[1]+114*y[2]-56*y[3]+11*y[4])/(12*self.dx**2),
+                (10*self.H - 15*y[1]-4*y[2]+14*y[3]-6*y[4]+1*y[5])/(12*self.dx**2),
                 np.convolve(y_reflected, self.D2x, mode='valid'),
             ]
 
