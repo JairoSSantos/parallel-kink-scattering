@@ -1,3 +1,4 @@
+import numpy as np
 from numpy import ndarray
 
 def memory_economize(t: float, Y: ndarray):
