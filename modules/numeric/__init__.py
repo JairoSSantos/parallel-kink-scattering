@@ -2,13 +2,18 @@ import numpy as np
 import sympy as sp
 from math import factorial, sqrt, acosh, asinh, atanh
 from dataclasses import dataclass
-from typing import Callable, Any
+from typing import Callable, Any, Literal
 
 from .boundaries import *
+_BOUNDARIES = {
+    'dirichlet': Dirichlet,
+    'neumann': Neumann,
+    'reflective': Reflective
+}
 
-NUMERIC = float|np.ndarray[float]
+_NUMERIC = float|np.ndarray[float]
 
-def diff_coeffs(m: int, offsets: tuple[int], h: float=1, symbolic=False) -> np.ndarray:
+def diff_coeffs(m: int, stencil: tuple[int], h: float=1, symbolic=False) -> np.ndarray:
     '''
     Finite difference coefficients: considering that a function $f(x)$ can be differentiated as
     $$
@@ -21,7 +26,7 @@ def diff_coeffs(m: int, offsets: tuple[int], h: float=1, symbolic=False) -> np.n
     ----------
     m: int
         Derivative order.
-    offsets: ndarray[int]
+    stencil: ndarray[int]
         An 1-dimensional array containing the nodes location 
         that will be used on the differentiation.
     h: float, optional
@@ -32,8 +37,8 @@ def diff_coeffs(m: int, offsets: tuple[int], h: float=1, symbolic=False) -> np.n
     ndarray[float]
         Finite difference coefficients.
     '''
-    offsets = np.r_[offsets]
-    A = sp.Matrix(offsets[:, np.newaxis]**np.arange(len(offsets)))
+    stencil = np.r_[stencil]
+    A = sp.Matrix(stencil[:, np.newaxis]**np.arange(len(stencil)))
     weights = factorial(m)*np.r_[A.inv()][m]/h**m
     return weights if symbolic else weights.astype(float)
 
@@ -41,14 +46,14 @@ def argnearest(arr: np.ndarray, value: Any):
     return np.abs(arr - value).argmin()
 
 def rk4_solve(
-        F: Callable[[float, NUMERIC], NUMERIC], 
-        y0: NUMERIC, 
+        F: Callable[[float, _NUMERIC], _NUMERIC], 
+        y0: _NUMERIC, 
         dt: float, 
         t_final: float, 
         t0: float=0,
         F_params: dict={},
-        callback: Callable[[float, NUMERIC], NUMERIC]=None,
-        stop_condition: Callable[[float, NUMERIC], NUMERIC]=None):
+        callback: Callable[[float, _NUMERIC], _NUMERIC]=None,
+        stop_condition: Callable[[float, _NUMERIC], _NUMERIC]=None):
     '''
     Runge-Kutta integration for a generalized ODEs system.
 
@@ -169,38 +174,60 @@ class Booster:
     def __init__(self, 
         x_lattice: tuple[float, float, int], 
         dt: float, 
-        diff_order: int,
-        y0: Callable[[NUMERIC], NUMERIC],
-        pot_diff: Callable[[NUMERIC], NUMERIC],
-        boundaries: Boundary|tuple[Boundary]=None
+        order: int,
+        y0: Callable[[_NUMERIC], _NUMERIC],
+        pot_diff: Callable[[_NUMERIC], _NUMERIC],
+        boundaries: tuple[Boundary|str]=None
     ):
-        assert diff_order%2 == 0
+        assert order%2 == 0
 
         self.x = np.linspace(*x_lattice)
         self.dt = dt
         self.y0 = y0
         self.pot_diff = pot_diff
 
-        p = diff_order + 1
-        self.DDx = diff_coeffs(m=2, offsets=np.arange(p) - p//2, h=(x_lattice[1] - x_lattice[0])/(x_lattice[2] - 1))
+        nodes = order//2
+        h = (x_lattice[1] - x_lattice[0])/(x_lattice[2] - 1)
+        self.DDx = diff_coeffs(m=2, stencil=range(-nodes, nodes+1), h=h)
         self.dx = (x_lattice[1] - x_lattice[0])/(x_lattice[2] - 1)
 
         if boundaries == None:
-            self.lb = self.rb = Reflective(nodes=p//2)
+            self._boundaries = [Reflective(m=2, order=order, h=h)]*2
         else:
-            try:
-                self.lb, self.rb = boundaries
-            except TypeError:
-                self.lb = self.rb = boundaries
+            self._boundaries = []
+            for boundary in boundaries:
+                match type(boundary).__name__:
+                    case 'str': self._boundaries.append(_BOUNDARIES[boundary](m=2, order=order, h=h))
+                    case 'Boundary': self._boundaries.append(boundary)
+                    case other: raise f'Type "{other}" is not recognized as a boundary.'
+    
+    @property
+    def lb(self):
+        return self._boundaries[0]
+    
+    @property
+    def rb(self):
+        return self._boundaries[1]
     
     def system(self, t, Y, **pot_params):
 
         y, dydt = Y
-        y_boundaries = self.rb(self.lb(y)[::-1])[::-1]
+        y_d2x = np.r_[
+            self.lb(y),
+            np.convolve(y, self.DDx, mode='valid'),
+            self.rb(y[::-1])[::-1]
+        ]
         return np.stack((
             dydt,
-            np.convolve(y_boundaries, self.DDx, mode='valid') - self.pot_diff(y, **pot_params)
+            y_d2x - self.pot_diff(y, **pot_params)
         ))
+
+        # y, dydt = Y
+        # y_boundaries = self.rb(self.lb(y)[::-1])[::-1]
+        # return np.stack((
+        #     dydt,
+        #     np.convolve(y_boundaries, self.DDx, mode='valid') - self.pot_diff(y, **pot_params)
+        # ))
 
         # y, dydt = Y
         # y_boundaries = self.rb(self.lb(y)[::-1])[::-1]
