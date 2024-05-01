@@ -1,99 +1,19 @@
-import numpy as np
-import sympy as sp
-from math import factorial, sqrt, acosh, asinh, atanh
-from dataclasses import dataclass
-from typing import Callable, Any, Literal
-
+from .misc import *
+from .integrators import *
 from .boundaries import *
+from .models import *
+
+_NUMERIC = float|np.ndarray[float]
 _BOUNDARIES = {
     'dirichlet': Dirichlet,
     'neumann': Neumann,
     'reflective': Reflective
 }
-
-_NUMERIC = float|np.ndarray[float]
-
-def diff_coeffs(m: int, stencil: tuple[int], h: float=1, symbolic=False) -> np.ndarray:
-    '''
-    Finite difference coefficients: considering that a function $f(x)$ can be differentiated as
-    $$
-    f^{(m)}(x) \approx \frac{1}{h^{m}}\sum _{i=0}^{p-1} c_i f( x+\alpha_i h),
-    $$
-    where $m >0$, the constants $c_i$ are called finite difference coefficients 
-    and $\alpha_i$ intagers that locates nodes igually spaced by $h$.
-
-    Parameters
-    ----------
-    m: int
-        Derivative order.
-    stencil: ndarray[int]
-        An 1-dimensional array containing the nodes location 
-        that will be used on the differentiation.
-    h: float, optional
-        Space between the mesh nodes. Default is 1.
-    
-    Attributes
-    ----------
-    ndarray[float]
-        Finite difference coefficients.
-    '''
-    stencil = np.r_[stencil]
-    A = sp.Matrix(stencil[:, np.newaxis]**np.arange(len(stencil)))
-    weights = factorial(m)*np.r_[A.inv()][m]/h**m
-    return weights if symbolic else weights.astype(float)
-
-def argnearest(arr: np.ndarray, value: Any):
-    return np.abs(arr - value).argmin()
-
-def rk4_solve(
-        F: Callable[[float, _NUMERIC], _NUMERIC], 
-        y0: _NUMERIC, 
-        dt: float, 
-        t_final: float, 
-        t0: float=0,
-        F_params: dict={},
-        callback: Callable[[float, _NUMERIC], _NUMERIC]=None,
-        stop_condition: Callable[[float, _NUMERIC], _NUMERIC]=None):
-    '''
-    Runge-Kutta integration for a generalized ODEs system.
-
-    Parameters
-    ----------
-    F: callable
-        The function $F(t, y)$ that will be integrated: $\dfrac{dy}{dt} = F(t, y)$
-    y0: float or ndarray
-        The initial configuration $y_0=y(t_0)$.
-    dt: float
-        Mesh spacing of the independent variable.
-    t_final:
-        Final value for the independent variable.
-    t0: float, optioal
-        Initial independent variable value $t_0$. Default if `t0=0`.
-    callback: callable, optional
-        A `func(t, y)` that will be called at each method iteration 
-        and have to recieve `t`, the independent variable, and `y`, the result of the last method iteration.
-        The function output have to be the modified `y`: `func(t, y) -> y`.
-    stop_conditions: tuple[callable], optional
-        These will be called at each method iteration and have to recieve two parameters: 
-        `func(t, y)`, where `t` is the independent variable and `y` the result of the last method iteration. 
-        Furthermore, the functions return type have to be boolean so that any `True` return makes the iteration stops.
-    '''
-    Y = [y0]
-    T = np.arange(t0, t_final, dt)
-    for i, t in enumerate(T[1:]):
-        y = Y[-1]
-
-        k1 = F(t, y, **F_params)
-        k2 = F(t + dt/2, y + k1*dt/2, **F_params)
-        k3 = F(t + dt/2, y + k2*dt/2, **F_params)
-        k4 = F(t + dt, y + k3*dt, **F_params)
-        Y.append(y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4))
-
-        if callback != None: callback(t, Y)
-
-        if stop_condition != None and stop_condition(t, Y[-1]): break
-
-    return T[:i+2], np.r_[Y]
+_INTEGRATORS = {
+    'rk4': RungeKutta4th,
+    'sy4': Symplectic4th,
+    'sy6': Symplectic6th
+}
 
 class Lattice:
     '''
@@ -172,17 +92,19 @@ class Lattice:
 
 class Booster:
     def __init__(self, 
-        x_lattice: tuple[float, float, int], 
-        dt: float, 
-        order: int,
-        y0: Callable[[_NUMERIC], _NUMERIC],
-        pot_diff: Callable[[_NUMERIC], _NUMERIC],
-        boundaries: tuple[Boundary|str]=None
-    ):
+                 x_lattice: tuple[float, float, int], 
+                 dt: float, 
+                 order: int,
+                 y0: Callable[[_NUMERIC], _NUMERIC],
+                 pot_diff: Callable[[_NUMERIC], _NUMERIC],
+                 boundaries: tuple[Boundary|str]=None,
+                 integrator: Integrator|str='rk4',
+                 event: Callable[[float, _NUMERIC], None]=(lambda t, Y: None)):
+        
         assert order%2 == 0
 
         self.x = np.linspace(*x_lattice)
-        self.dt = dt
+        # self.dt = dt
         self.y0 = y0
         self.pot_diff = pot_diff
 
@@ -200,6 +122,18 @@ class Booster:
                     case 'str': self._boundaries.append(_BOUNDARIES[boundary](m=2, order=order, h=h))
                     case 'Boundary': self._boundaries.append(boundary)
                     case other: raise f'Type "{other}" is not recognized as a boundary.'
+        
+        integrator_params = {
+            'fun': self.fun,
+            'dt': dt,
+            'event': event
+        }
+        match type(integrator).__name__:
+            case 'str':
+                self.integrator = _INTEGRATORS[integrator](**integrator_params)
+            case 'Integrator':
+                self.integrator = integrator
+            case other: raise f'Type "{other}" is not recognized as a integrator.'
     
     @property
     def lb(self):
@@ -209,8 +143,7 @@ class Booster:
     def rb(self):
         return self._boundaries[1]
     
-    def system(self, t, Y, **pot_params):
-
+    def fun(self, t, Y):
         y, dydt = Y
         y_d2x = np.r_[
             self.lb(y),
@@ -219,34 +152,9 @@ class Booster:
         ]
         return np.stack((
             dydt,
-            y_d2x - self.pot_diff(y, **pot_params)
+            y_d2x - self.pot_diff(y)
         ))
 
-        # y, dydt = Y
-        # y_boundaries = self.rb(self.lb(y)[::-1])[::-1]
-        # return np.stack((
-        #     dydt,
-        #     np.convolve(y_boundaries, self.DDx, mode='valid') - self.pot_diff(y, **pot_params)
-        # ))
-
-        # y, dydt = Y
-        # y_boundaries = self.rb(self.lb(y)[::-1])[::-1]
-        # return np.stack((
-        #     dydt,
-        #     np.r_[
-        #         np.convolve(y_boundaries, self.DDx, mode='valid')[:-2],
-        #         [(29*y[-1] - 54*y[-2] + 27*y[-3] - 2*y[-4] - 6*self.dx*self.rb.param)/(18*self.dx**2),
-        #         -(85*y[-1] - 108*y[-2] + 27*y[-3] - 4*y[-4] - 66*self.dx*self.rb.param)/(18*self.dx**2)]
-        #     ] - self.pot_diff(y, **pot_params)
-        # ))
-    
-    def run(self, T: float, y0_params: dict={}, pot_params: dict={}, **rk_params):
-        t, Y = rk4_solve(
-            F= self.system,
-            y0= self.y0(self.x, **y0_params),
-            dt= self.dt,
-            t_final= T,
-            F_params= pot_params,
-            **rk_params
-        )
-        return Lattice(x=self.x, t=t), Y[:, 0], Y[:, 1]
+    def run(self, t_final: float, t0: float=0, **y0_params):
+        t, Y = self.integrator.run(self.y0(self.x, **y0_params), t_final=t_final, t0=t0)
+        return Lattice(x=self.x, t=t), Y

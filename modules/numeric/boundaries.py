@@ -23,9 +23,6 @@ class Boundary:
     def _ell(self, i, j):
         return i**(j - self.m)*factorial(j)/factorial(j - self.m)
     
-    def set_param(self, value):
-        self.param = value
-    
     def __call__(self, Y):
         return self.C @ np.r_[self.param, Y[1:self.w]]
 
