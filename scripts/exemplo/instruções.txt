@@ -1,0 +1,27 @@
+Nestes scripts serão utilizados métodos, classes e funções que foram construídos de forma a 
+simplificar a simulação do espalhamento de defeitos topologicos em 1+1 dimensões.
+O código fonte destas ferramentas podem ser encontradas na pasta `numeric`.
+Os scripts foram escritos de modo a utilizar 80% dos clusters de forma paralela.
+Os dados do campo no centro de massa `CM` serão salvos no formato .npy (mais informações em https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html#module-numpy.lib.format)
+
+modules.numeric.Collider: Objeto responsável por realizar as simulações.
+    Parâmetros:
+        -> x_lattice: Uma lista contendo as informações da dimensão espacial (`x_min`, `x_max`, `Nx`).
+        -> dt: O espaçamento temporal que será utilizado no integrador.
+        -> order: Ordem das derivadas (deve ser um número par).
+        -> y0: Uma função python que retorna a configuração inicial do campo escalar, deve ser na forma `y0(x, **params)`, onde `params` são parâmetros adicionais como velocidade e valores de borda.
+        -> pot_diff: Uma função python que retorna a derivada do potencial, deve ser na forma `pot_diff(y)` (está função não pode depender de parâmetros adicionais).
+        -> boundaries (opicional, padrão bordas reflexivas): Tipos de bordas, aceita diferentes formas de condições de fronteira.
+        -> integrator (opicional, padrão runge-kutta de 4a ordem): Integrador tempora, aceita diferentes formas de integrador.
+        -> event (opicional): Uma função que será chamada a cada passo da integração.
+
+Instalando dependências:
+    $ pip install -r requirements.txt
+
+Execução sem interrupções:
+    $ nohup python nome_do_script.py > nome_do_script.out & 
+
+O arquivo "nome_do_script.out" deve ser criado automaticamente e mostrará mensagens do programa: erros e logs.
+
+Caso seja necessário interromper o programa:
+    $ killall "python nome_do_script.py"
