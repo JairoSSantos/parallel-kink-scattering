@@ -55,7 +55,7 @@ def scan(scale):
         logger.debug(f'Rodando a colisão para scale={scale} e v={v}...')
         path = savedir/f'scale={scale}, v={v}.npy'
         _, Y = collider.run(100, v=v)
-        with open(path, 'rb') as file:
+        with open(path, 'wb') as file:
             np.save(file, Y[:, 0, CM])
 
 # ===== Iniciando programa

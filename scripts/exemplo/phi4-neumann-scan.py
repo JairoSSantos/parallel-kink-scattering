@@ -17,7 +17,7 @@ DX = L/(N - 1)
 DT = 4e-2
 X0 = -10
 V = np.linspace(0, 1, 302)[1:-1] # velicidades iniciais
-Hs = np.linspace(2, 50, 300) # parâmetro de borda
+Hs = np.linspace(-1, 1, 300) # parâmetro de borda
 
 # Objeto `logger` para visualizar o andamento do código em tempo real
 logger = logging.getLogger()
@@ -60,7 +60,7 @@ def scan(H):
         logger.debug(f'Rodando a colisão para H={H} e v={v}...')
         path = savedir/f'H={H}, v={v}.npy'
         _, Y = collider.run(100, v=v, H=H)
-        with open(path, 'rb') as file:
+        with open(path, 'wb') as file:
             np.save(file, Y[:, 0, CM])
 
 # ===== Iniciando programa
