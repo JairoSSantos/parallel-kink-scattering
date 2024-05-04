@@ -1,7 +1,7 @@
 Nestes scripts serão utilizados métodos, classes e funções que foram construídos de forma a 
 simplificar a simulação do espalhamento de defeitos topologicos em 1+1 dimensões.
 O código fonte destas ferramentas podem ser encontradas na pasta `numeric`.
-Os scripts foram escritos de modo a utilizar 80% dos clusters de forma paralela.
+Os scripts foram escritos de modo a utilizar 90% dos clusters de forma paralela.
 Os dados do campo no centro de massa `CM` serão salvos no formato .npy (mais informações em https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html#module-numpy.lib.format)
 
 modules.numeric.Collider: Objeto responsável por realizar as simulações.

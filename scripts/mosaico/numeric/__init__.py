@@ -2,6 +2,7 @@ from .misc import *
 from .integrators import *
 from .boundaries import *
 from .models import *
+from .parallel import *
 
 _NUMERIC = float|np.ndarray[float]
 _BOUNDARIES = {
@@ -89,6 +90,11 @@ class Lattice:
             if kw in kws else Ellipsis 
             for kw, axis in self.axes.items()
         ]
+    
+    def extent(self, *axis):
+        if not len(axis): 
+            axis = self.axes.keys()
+        return np.concatenate([(self.axes[ax].min(), self.axes[ax].max()) for ax in axis])
 
 class Collider:
     def __init__(self, 
@@ -104,7 +110,6 @@ class Collider:
         assert order%2 == 0
 
         self.x = np.linspace(*x_lattice)
-        # self.dt = dt
         self.y0 = y0
         self.pot_diff = pot_diff
 
