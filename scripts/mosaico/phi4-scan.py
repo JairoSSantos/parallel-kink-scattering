@@ -8,7 +8,7 @@ from ctypes import c_int
 
 # ===== Definições gerais
 
-SAVEPATH = '../phi4-scan.npy'
+SAVEPATH = 'phi4-scan.npy'
 
 # Parâmetros fixos das simulações
 L = 40

@@ -9,7 +9,7 @@ from math import acosh, asinh
 
 # ===== Definições gerais
 
-SAVEPATH = '../phi4-neumann-scan.npy'
+SAVEPATH = 'phi4-neumann-scan.npy'
 
 # Parâmetros fixos das simulações
 L = 100

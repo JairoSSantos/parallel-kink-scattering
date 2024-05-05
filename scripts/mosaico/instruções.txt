@@ -1,8 +1,8 @@
 Nestes scripts serão utilizados métodos, classes e funções que foram construídos de forma a 
 simplificar a simulação do espalhamento de defeitos topologicos em 1+1 dimensões.
 O código fonte destas ferramentas podem ser encontradas na pasta `numeric`.
-Os scripts foram escritos de modo a utilizar 90% dos clusters de forma paralela.
-Os dados do campo no centro de massa `CM` serão salvos no formato .npy (mais informações em https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html#module-numpy.lib.format)
+Os scripts foram escritos de modo a utilizar 80% dos clusters de forma paralela.
+Os dados serão salvos no formato .npy (mais informações em https://numpy.org/doc/stable/reference/generated/numpy.lib.format.html#module-numpy.lib.format)
 
 modules.numeric.Collider: Objeto responsável por realizar as simulações.
     Parâmetros:
@@ -25,3 +25,11 @@ O arquivo "nome_do_script.out" deve ser criado automaticamente e mostrará mensa
 
 Caso seja necessário interromper o programa:
     $ killall "python nome_do_script.py"
+
+Nestes exemplos: nome_do_script = (phi4-scan, phi4-neumann-scan)
+Nos testes realizados, o tempo de construção dos mosaicos foi de:
+    -> 1h para phi4-scan.py
+    -> 4h30m para phi4-neumann-scan.py
+
+Os gráficos dos mosaicos se encontram no arquivo analise.ipynb, que pode ser aberto e manipulado utilizando a ferramenta Jupyter (https://jupyter.org/).
+Neste arquivo, além dos gráficos dos mosaicos, estão plotados algumas colisões para as configurações kink-antikink e antikink-fronteira.
