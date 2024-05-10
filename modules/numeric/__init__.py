@@ -2,7 +2,6 @@ from .misc import *
 from .integrators import *
 from .boundaries import *
 from .models import *
-from .parallel import *
 
 _NUMERIC = float|np.ndarray[float]
 _BOUNDARIES = {
@@ -149,15 +148,17 @@ class Collider:
         return self._boundaries[1]
     
     def fun(self, t, Y):
-        y, dydt = Y
-        y_d2x = np.r_[
+        y, Dt_y = Y
+        D2x_y = np.r_[
             self.lb(y),
             np.convolve(y, self.DDx, mode='valid'),
             self.rb(y[::-1])[::-1]
         ]
+        D2t_y = D2x_y - self.pot_diff(y)
+        D2t_y[0] = D2t_y[-1] = 0
         return np.stack((
-            dydt,
-            y_d2x - self.pot_diff(y)
+            Dt_y,
+            D2t_y
         ))
 
     def run(self, t_final: float, t0: float=0, **y0_params):

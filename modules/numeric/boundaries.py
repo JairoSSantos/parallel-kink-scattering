@@ -5,13 +5,14 @@ class Boundary:
     def __init__(self, m: int, order: int, btype: int, param: float=None, h: float=1):
         self.m = m
         nodes = (order + m)//2 - 1
-        self.w = 5
+        self.w = order + 1
         self.param = param
+        self.btype = btype
 
         K = np.arange(self.w)
         M = np.r_[
             [np.where(K == btype, factorial(btype), 0)],
-            np.vander(K[1:] if m == 0 else K[:-1], self.w, increasing=True)
+            np.vander(K[1:] if btype == 0 else K[:-1], self.w, increasing=True)
         ]
         M_inv = np.linalg.inv(M)
         self.C = np.stack([
@@ -24,7 +25,7 @@ class Boundary:
         return i**(j - self.m)*factorial(j)/factorial(j - self.m)
     
     def __call__(self, Y):
-        return self.C @ np.r_[self.param, Y[1:self.w] if self.m == 0 else Y[:self.w-1]]
+        return self.C @ np.r_[self.param, Y[1:self.w] if self.btype == 0 else Y[:self.w-1]]
 
 class Dirichlet(Boundary):
     def __init__(self, m: int, order: int, param: float=None, h: float=1):
