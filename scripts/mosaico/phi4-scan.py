@@ -13,12 +13,12 @@ SAVEPATH = 'phi4-scan.npy'
 # Parâmetros fixos das simulações
 L = 40
 N = 1024
-CM = N//2-1 # índice do centro de massa
+CM = N//2 # índice do centro de massa
 DX = 2*L/(N - 1)
 DT = 4e-2
 X0 = 10
-V = np.linspace(0.1, 0.5, 302)[1:-1] # velicidades iniciais
-LAMB = np.linspace(1, 10, 300) # parâmetro de escala
+V = np.linspace(0, 1, 502)[1:-1] # velicidades iniciais
+LAMB = np.linspace(0, 5, 501)[1:] # parâmetro de escala
 TOTAL = len(V)*len(LAMB) # total de pontos
 
 # Objeto `logger` para visualizar o andamento do código em tempo real
@@ -61,8 +61,9 @@ def scan(scale):
 
     for i, v in enumerate(V):
         logger.debug(f'Rodando a colisão para scale={scale} e v={v}...')
-        with counter.get_lock(): counter.value += 1
-        _, Y = collider.run(X0/v + 2*L, v=v)
+        with counter.get_lock(): 
+            counter.value += 1
+        _, Y = collider.run(X0/v + L, v=v)
         mosaic_array = mosaic.to_numpy()
         mosaic_array[i, j] = Y[-1, 0, CM]
     
