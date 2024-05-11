@@ -1,10 +1,11 @@
 import numpy as np
 from math import factorial
+from typing import Callable
 
 class Boundary:
-    def __init__(self, m: int, order: int, btype: int, param: float=None, h: float=1):
-        self.m = m
-        nodes = (order + m)//2 - 1
+    def __init__(self, order: int, btype: int, param: float=None, h: float=1):
+        self.m = 2
+        nodes = (order + self.m)//2 - 1
         self.w = order + 1
         self.param = param
         self.btype = btype
@@ -16,10 +17,10 @@ class Boundary:
         ]
         M_inv = np.linalg.inv(M)
         self.C = np.stack([
-            [sum([self._ell(i, j)*M_inv[j, k] for j in range(m, self.w)]) 
+            [sum([self._ell(i, j)*M_inv[j, k] for j in range(self.m, self.w)]) 
              for k in range(self.w)]
             for i in range(nodes)
-        ])/h**m
+        ])/h**self.m
     
     def _ell(self, i, j):
         return i**(j - self.m)*factorial(j)/factorial(j - self.m)
@@ -28,15 +29,20 @@ class Boundary:
         return self.C @ np.r_[self.param, Y[1:self.w] if self.btype == 0 else Y[:self.w-1]]
 
 class Dirichlet(Boundary):
-    def __init__(self, m: int, order: int, param: float=None, h: float=1):
-        super().__init__(btype=0, m=m, order=order, param=param, h=h)
+    def __init__(self, f: Callable, order: int, param: float=None, h: float=1):
+        self.f = f
+        super().__init__(btype=0, order=order, param=param, h=h)
+    
+    def __call__(self, Y):
+        return np.r_[self.f(Y[0]), Boundary.__call__(self, Y)[1:]]
 
 class Neumann(Boundary):
-    def __init__(self, m: int, order: int, param: float=None, h: float=1):
-        super().__init__(btype=1, m=m, order=order, param=param, h=h)
+    def __init__(self, order: int, param: float=None, h: float=1):
+        super().__init__(btype=1, order=order, param=param, h=h)
 
 class Reflective(Boundary):
-    def __init__(self, m: int, order: int, h: float=1):
+    def __init__(self, order: int, h: float=1):
+        m = 2
         self.nodes = (order + m)//2 - 1
         self.C = factorial(m)*np.linalg.inv(np.vander(np.r_[-self.nodes:self.nodes+1], increasing=True))[m]/h**m
     

@@ -4,11 +4,6 @@ from .boundaries import *
 from .models import *
 
 _NUMERIC = float|np.ndarray[float]
-_BOUNDARIES = {
-    'dirichlet': Dirichlet,
-    'neumann': Neumann,
-    'reflective': Reflective
-}
 _INTEGRATORS = {
     'rk4': RungeKutta4th,
     'sy4': Symplectic4th,
@@ -118,13 +113,20 @@ class Collider:
         self.dx = (x_lattice[1] - x_lattice[0])/(x_lattice[2] - 1)
 
         if boundaries == None:
-            self._boundaries = [Reflective(m=2, order=order, h=h)]*2
+            self.boundaries = [Reflective(order=order, h=h)]*2
         else:
-            self._boundaries = []
+            self.boundaries = []
             for boundary in boundaries:
                 match type(boundary).__name__:
-                    case 'str': self._boundaries.append(_BOUNDARIES[boundary](m=2, order=order, h=h))
-                    case 'Boundary': self._boundaries.append(boundary)
+                    case 'str': 
+                        match boundary:
+                            case 'dirichlet':
+                                self.boundaries.append(Dirichlet(f=pot_diff, order=order, h=h))
+                            case 'neumann':
+                                self.boundaries.append(Neumann(order=order, h=h))
+                            case 'reflective':
+                                self.boundaries.append(Reflective(order=order, h=h))
+                    case 'Boundary': self.boundaries.append(boundary)
                     case other: raise f'Type "{other}" is not recognized as a boundary.'
         
         integrator_params = {
@@ -141,11 +143,11 @@ class Collider:
     
     @property
     def lb(self):
-        return self._boundaries[0]
+        return self.boundaries[0]
     
     @property
     def rb(self):
-        return self._boundaries[1]
+        return self.boundaries[1]
     
     def fun(self, t, Y):
         y, Dt_y = Y
@@ -155,7 +157,6 @@ class Collider:
             self.rb(y[::-1])[::-1]
         ]
         D2t_y = D2x_y - self.pot_diff(y)
-        D2t_y[0] = D2t_y[-1] = 0
         return np.stack((
             Dt_y,
             D2t_y
