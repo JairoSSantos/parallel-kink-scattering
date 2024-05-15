@@ -11,22 +11,6 @@ _INTEGRATORS = {
 }
 
 class Lattice:
-    '''
-    A generalized lattice object.
-
-    Parameters
-    ----------
-    **axes: The axes names with that's range array, `x = np.arange(initial_value, final_value, spacing)`.
-
-    Attributes
-    ----------
-    axes: dict
-        A dict containing the axes ranges
-    shape: tuple[int]
-        The lattice shape.
-    grid: ndarray
-        A n-dimensional array with the lattice nodes locations.
-    '''
     def __init__(self, **axes):
         self.axes = axes
     
@@ -45,19 +29,6 @@ class Lattice:
         return np.stack(np.meshgrid(*tuple(self.axes.values())), axis=-1)
     
     def at(self, **locs) -> list:
-        '''
-        Indices that provides the node(s) location, given position values.
-
-        Parameters
-        ----------
-        **locs: Position values.
-
-        Returns
-        -------
-        list
-            A list with the nodes locations as index format, 
-            each item in the list corresponding to a lattice axe.
-        '''
         kws = tuple(locs.keys())
         return [
             argnearest(axis, locs[kw]) if kw in kws else Ellipsis 
@@ -65,19 +36,6 @@ class Lattice:
         ]
     
     def window(self, **lims) -> list:
-        '''
-        Indices that provides a range on the lattice, given values for the axes limits.
-
-        Parameters
-        ----------
-        **locs: limits values, like `(min, max)`.
-
-        Returns
-        -------
-        list
-            A list with the lattice ranges as index format,
-            each item in the list corresponding to a lattice axe.
-        '''
         kws = tuple(lims.keys())
         return [
             slice(argnearest(axis, lims[kw][0]), argnearest(axis, lims[kw][1]))
