@@ -2,6 +2,7 @@ from .misc import *
 from .integrators import *
 from .boundaries import *
 from .models import *
+from .parallel import *
 
 _NUMERIC = float|np.ndarray[float]
 _INTEGRATORS = {
@@ -80,6 +81,7 @@ class Collider:
                         match boundary:
                             case 'dirichlet':
                                 self.boundaries.append(Dirichlet(f=pot_diff, order=order, h=h))
+                                # self.boundaries.append(Dirichlet(order=order, h=h))
                             case 'neumann':
                                 self.boundaries.append(Neumann(order=order, h=h))
                             case 'reflective':

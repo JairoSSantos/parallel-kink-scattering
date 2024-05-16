@@ -36,6 +36,10 @@ class Dirichlet(Boundary):
     def __call__(self, Y):
         return np.r_[self.f(Y[0]), Boundary.__call__(self, Y)[1:]]
 
+# class Dirichlet(Boundary):
+#     def __init__(self, order: int, param: float=None, h: float=1):
+#         super().__init__(btype=0, order=order, param=param, h=h)
+
 class Neumann(Boundary):
     def __init__(self, order: int, param: float=None, h: float=1):
         super().__init__(btype=1, order=order, param=param, h=h)
