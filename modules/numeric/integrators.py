@@ -41,10 +41,10 @@ _SYMPLECTIC['6th-order'] = (
 
 class Integrator(ABC):
     def __init__(self, 
-                 fun: Callable[[float, _NUMERIC], _NUMERIC], 
+                 func: Callable[[float, _NUMERIC], _NUMERIC], 
                  dt: float, 
                  event: Callable[[float, _NUMERIC], None]=(lambda t, Y: None)):
-        self.fun = fun
+        self.func = func
         self.dt = dt
         self.event = event
 
@@ -63,10 +63,10 @@ class Integrator(ABC):
 
 class RungeKutta4th(Integrator):
     def step(self, t, Y):
-        k1 = self.fun(t, Y)
-        k2 = self.fun(t + self.dt/2, Y + k1*self.dt/2)
-        k3 = self.fun(t + self.dt/2, Y + k2*self.dt/2)
-        k4 = self.fun(t + self.dt, Y + k3*self.dt)
+        k1 = self.func(t, Y)
+        k2 = self.func(t + self.dt/2, Y + k1*self.dt/2)
+        k3 = self.func(t + self.dt/2, Y + k2*self.dt/2)
+        k4 = self.func(t + self.dt, Y + k3*self.dt)
         return Y + (self.dt/6)*(k1 + 2*k2 + 2*k3 + k4)
 
 class Symplectic(Integrator):
@@ -78,7 +78,7 @@ class Symplectic(Integrator):
         y, dy = Y
         for c, d in self.coeffs:
             y = y + self.dt*c*dy
-            dy = dy + self.dt*d*self.fun(t, (y, dy))[-1]
+            dy = dy + self.dt*d*self.func(t, (y, dy))[-1]
         return np.r_[[y], [dy]]
 
 class Symplectic4th(Symplectic):

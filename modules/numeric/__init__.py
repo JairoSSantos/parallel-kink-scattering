@@ -11,7 +11,7 @@ _INTEGRATORS = {
     'sy6': Symplectic6th
 }
 
-class Lattice:
+class Grid:
     def __init__(self, **axes):
         self.axes = axes
     
@@ -48,49 +48,43 @@ class Lattice:
         if not len(axis): 
             axis = self.axes.keys()
         return np.concatenate([(self.axes[ax].min(), self.axes[ax].max()) for ax in axis])
-
-class Collider:
+    
+class Wave:
     def __init__(self, 
-                 x_lattice: tuple[float, float, int], 
+                 x_grid: tuple[float, float, int], 
                  dt: float, 
                  order: int,
                  y0: Callable[[_NUMERIC], _NUMERIC],
-                 pot_diff: Callable[[_NUMERIC], _NUMERIC],
+                 F: Callable[[_NUMERIC], _NUMERIC],
                  boundaries: tuple[Boundary|str]=None,
                  integrator: Integrator|str='rk4',
                  event: Callable[[float, _NUMERIC], None]=(lambda t, Y: None)):
         
         assert order%2 == 0
 
-        self.x = np.linspace(*x_lattice)
+        self.x = np.linspace(*x_grid)
         self.y0 = y0
-        self.pot_diff = pot_diff
+        self.F = F
 
-        nodes = order//2
-        h = (x_lattice[1] - x_lattice[0])/(x_lattice[2] - 1)
-        self.DDx = diff_coeffs(m=2, stencil=range(-nodes, nodes+1), h=h)
-        self.dx = (x_lattice[1] - x_lattice[0])/(x_lattice[2] - 1)
+        self.nodes = order//2
+        dx = (x_grid[1] - x_grid[0])/(x_grid[2] - 1)
+        self.central = diff_coeffs(m=2, stencil=range(-self.nodes, self.nodes+1), h=dx)
 
         if boundaries == None:
-            self.boundaries = [Reflective(order=order, h=h)]*2
+            self.lb = self.rb = Reflective(order=order)
         else:
-            self.boundaries = []
-            for boundary in boundaries:
-                match type(boundary).__name__:
-                    case 'str': 
-                        match boundary:
-                            case 'dirichlet':
-                                self.boundaries.append(Dirichlet(f=pot_diff, order=order, h=h))
-                                # self.boundaries.append(Dirichlet(order=order, h=h))
-                            case 'neumann':
-                                self.boundaries.append(Neumann(order=order, h=h))
-                            case 'reflective':
-                                self.boundaries.append(Reflective(order=order, h=h))
-                    case 'Boundary': self.boundaries.append(boundary)
-                    case other: raise f'Type "{other}" is not recognized as a boundary.'
+            self.lb, self.rb = boundaries
+        self.lb_diff = self.lb.get_diff(2, h=dx)
+        self.rb_diff = self.rb.get_diff(2, h=dx)
+        self.dirichlet_filter = (
+            int(not type(self.lb) is Dirichlet),
+            int(not type(self.rb) is Dirichlet)
+        )
+        self.Gl = self.lb.ghost(self.nodes)
+        self.Gr = self.rb.ghost(self.nodes)
         
         integrator_params = {
-            'fun': self.fun,
+            'func': self.func,
             'dt': dt,
             'event': event
         }
@@ -101,22 +95,21 @@ class Collider:
                 self.integrator = integrator
             case other: raise f'Type "{other}" is not recognized as a integrator.'
     
-    @property
-    def lb(self):
-        return self.boundaries[0]
-    
-    @property
-    def rb(self):
-        return self.boundaries[1]
-    
-    def fun(self, t, Y):
+    def func(self, t, Y):
         y, Dt_y = Y
-        D2x_y = np.r_[
-            self.lb(y),
-            np.convolve(y, self.DDx, mode='valid'),
-            self.rb(y[::-1])[::-1]
-        ]
-        D2t_y = D2x_y - self.pot_diff(y)
+
+        yb = np.r_[(self.Gl @ self.lb.take(y))[::-1], y, (self.Gr @ self.rb.take(y[::-1]))]
+        D2x_y = np.convolve(yb, self.central, mode='valid')
+        
+        # D2x_y = np.r_[
+        #     self.lb_diff @ np.r_[self.lb.param, y[self.lb.slice]],
+        #     np.convolve(y, self.central, mode='valid'),
+        #     (self.rb_diff @ np.r_[self.rb.param, y[::-1][self.rb.slice]])[::-1]
+        # ]
+
+        D2t_y = D2x_y - self.F(y)
+        D2t_y[0] *= self.dirichlet_filter[0]
+        D2t_y[-1] *= self.dirichlet_filter[1]
         return np.stack((
             Dt_y,
             D2t_y
@@ -124,4 +117,4 @@ class Collider:
 
     def run(self, t_final: float, t0: float=0, **y0_params):
         t, Y = self.integrator.run(self.y0(self.x, **y0_params), t_final=t_final, t0=t0)
-        return Lattice(x=self.x, t=t), Y
+        return Grid(x=self.x, t=t), Y

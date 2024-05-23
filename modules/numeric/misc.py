@@ -1,12 +1,10 @@
 import numpy as np
-from dataclasses import dataclass
 from typing import Any
 from math import factorial
-from dataclasses import dataclass
 
 _NUMERIC = float|np.ndarray[float]
 
-def diff_coeffs(m: int, stencil: tuple[int], h: float=1, symbolic=False) -> np.ndarray:
+def diff_coeffs(m: int, stencil: tuple[int], h: float=1) -> np.ndarray:
     '''
     Finite difference coefficients: considering that a function $f(x)$ can be differentiated as
     $$
@@ -32,5 +30,5 @@ def diff_coeffs(m: int, stencil: tuple[int], h: float=1, symbolic=False) -> np.n
     '''
     return factorial(m)*np.linalg.inv(np.vander(stencil, increasing=True))[m]/h**m
 
-def argnearest(arr: np.ndarray, value: Any):
+def argnearest(arr: np.ndarray, value: Any) -> np.ndarray:
     return np.abs(arr - value).argmin()
