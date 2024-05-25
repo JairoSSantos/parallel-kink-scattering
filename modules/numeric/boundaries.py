@@ -27,8 +27,8 @@ class Boundary:
         nodes = (self.order + n)//2 - 1
         return np.array([[self._c_tilde(n, i, k) for k in range(self.w)] for i in range(nodes)])/h**n
     
-    def ghost(self, p):
-        return np.vander(-np.arange(1, p+1), self.w, increasing=True) @ self.M_inv
+    def get_ghost_operator(self, nodes):
+        return np.vander(-np.arange(1, nodes+1), self.w, increasing=True) @ self.M_inv
     
     def take(self, y):
         return np.r_[self.param, y[self.slice]]
@@ -45,52 +45,12 @@ class Reflective(Neumann):
     def __init__(self, order: int):
         super().__init__(order=order, param=0)
 
-# class Boundary:
-#     def __init__(self, m, n, order: int, param: float=None):
-#         w = order + 1
-#         self.param = param
-
-#         nodes = (order + n)//2 - 1
-#         K = np.arange(w)
-#         M = np.r_[
-#             [np.where(K == m, factorial(m), 0)],
-#             np.vander(K[1:] if m == 0 else K[:-1], w, increasing=True)
-#         ]
-#         M_inv = np.linalg.inv(M)
-
-#         def ell(i, j):
-#             return i**(j - n)*factorial(j)/factorial(j - n)
-        
-#         def c_tilde(i, k):
-#             return sum([ell(i, j)*M_inv[j, k] for j in range(n, w)])
-
-#         self.C = np.stack([[c_tilde(i, k) for k in range(w)] for i in range(nodes)])/h**n
-#         self.slice = slice(1, w) if m == 0 else slice(0, w-1)
+class Ghost:
+    def __init__(self, nodes: int, lb: Boundary, rb: Boundary):
+        self.lb = lb
+        self.rb = rb
+        self.lb_operator = lb.get_ghost_operator(nodes)
+        self.rb_operator = rb.get_ghost_operator(nodes)
     
-#     def __call__(self, Y):
-#         return self.C @ np.r_[self.param, Y[self.slice]]
-
-# class Dirichlet(Boundary):
-#     def __init__(self, f: Callable, n: int, order: int, param: float=None, h: float=1):
-#         self.f = f
-#         super().__init__(m=0, n=n, order=order, param=param, h=h)
-    
-#     def __call__(self, Y):
-#         return np.r_[self.f(Y[0]), Boundary.__call__(self, Y)[1:]]
-
-# class Neumann(Boundary):
-#     def __init__(self, n: int, order: int, param: float=None, h: float=1):
-#         super().__init__(m=1, n=n, order=order, param=param, h=h)
-
-# class Reflective(Neumann):
-#     def __init__(self, n, order: int, h: float=1):
-#         super().__init__(n=n, order=order, param=0, h=h)
-
-# class Reflective(Boundary):
-#     def __init__(self, order: int, h: float=1):
-#         m = 2
-#         self.nodes = (order + m)//2 - 1
-#         self.C = factorial(m)*np.linalg.inv(np.vander(np.r_[-self.nodes:self.nodes+1], increasing=True))[m]/h**m
-    
-#     def __call__(self, Y):
-#         return np.convolve(np.r_[Y[1:self.nodes+1][::-1], Y[:2*self.nodes]], self.C, mode='valid')
+    def __call__(self, y):
+        return np.r_[((self.lb_operator @ self.lb.take(y))[::-1], y, (self.rb_operator @ self.rb.take(y[::-1])))]

@@ -41,45 +41,48 @@ _SYMPLECTIC['6th-order'] = (
 
 class Integrator(ABC):
     def __init__(self, 
-                 func: Callable[[float, _NUMERIC], _NUMERIC], 
                  dt: float, 
+                 func: Callable[[float, _NUMERIC], _NUMERIC], 
                  event: Callable[[float, _NUMERIC], None]=(lambda t, Y: None)):
-        self.func = func
         self.dt = dt
+        self.func = func
         self.event = event
 
     @abstractmethod
-    def step(self, t: float, Y: _NUMERIC) -> _NUMERIC:
+    def step(self, t: float, u: _NUMERIC) -> _NUMERIC:
         pass
 
-    def run(self, y0: _NUMERIC, t_final: float, t0: float=0):
+    def run(self, t_final: float, Y0: _NUMERIC, t0: float=0):
         t = [t0]
-        Y = [y0]
+        Y = [Y0]
         while t[-1] < t_final:
+            self.event(t[-1], Y[-1])
             Y.append(self.step(t[-1], Y[-1]))
             t.append(t[-1] + self.dt)
-            self.event(t[-1], Y[-1])
+        self.event(t[-1], Y[-1])
         return np.stack(t), np.stack(Y)
 
 class RungeKutta4th(Integrator):
-    def step(self, t, Y):
-        k1 = self.func(t, Y)
-        k2 = self.func(t + self.dt/2, Y + k1*self.dt/2)
-        k3 = self.func(t + self.dt/2, Y + k2*self.dt/2)
-        k4 = self.func(t + self.dt, Y + k3*self.dt)
-        return Y + (self.dt/6)*(k1 + 2*k2 + 2*k3 + k4)
+
+    def step(self, t, u):
+        k1 = self.func(t, *u)
+        k2 = self.func(t + self.dt/2, *(u + k1*self.dt/2))
+        k3 = self.func(t + self.dt/2, *(u + k2*self.dt/2))
+        k4 = self.func(t + self.dt, *(u + k3*self.dt))
+        return u + (self.dt/6)*(k1 + 2*k2 + 2*k3 + k4)
 
 class Symplectic(Integrator):
     def __init__(self, *args, integrator: str='4th-order', **kwargs):
         super().__init__(*args, **kwargs)
         self.coeffs = np.stack(_SYMPLECTIC[integrator], axis=1) # [(c1, d1), (c2, d2), ...]
 
-    def step(self, t, Y):
-        y, dy = Y
+    def step(self, t, u):
+        y, y_dt = u
         for c, d in self.coeffs:
-            y = y + self.dt*c*dy
-            dy = dy + self.dt*d*self.func(t, (y, dy))[-1]
-        return np.r_[[y], [dy]]
+            y = y + self.dt*c*y_dt
+            _, y_dt2 = self.func(t, y, y_dt)
+            y_dt = y_dt + self.dt*d*y_dt2
+        return np.stack((y, y_dt))
 
 class Symplectic4th(Symplectic):
     def __init__(self, *args, **kwargs):

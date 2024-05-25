@@ -3,6 +3,7 @@ from .integrators import *
 from .boundaries import *
 from .models import *
 from .parallel import *
+from findiff import FinDiff
 
 _NUMERIC = float|np.ndarray[float]
 _INTEGRATORS = {
@@ -66,55 +67,54 @@ class Wave:
         self.y0 = y0
         self.F = F
 
-        self.nodes = order//2
+        nodes = order//2
         dx = (x_grid[1] - x_grid[0])/(x_grid[2] - 1)
-        self.central = diff_coeffs(m=2, stencil=range(-self.nodes, self.nodes+1), h=dx)
+        self.central = diff_coeffs(m=2, stencil=range(-nodes, nodes + 1), h=dx)
 
-        if boundaries == None:
-            self.lb = self.rb = Reflective(order=order)
-        else:
-            self.lb, self.rb = boundaries
-        self.lb_diff = self.lb.get_diff(2, h=dx)
-        self.rb_diff = self.rb.get_diff(2, h=dx)
-        self.dirichlet_filter = (
-            int(not type(self.lb) is Dirichlet),
-            int(not type(self.rb) is Dirichlet)
-        )
-        self.Gl = self.lb.ghost(self.nodes)
-        self.Gr = self.rb.ghost(self.nodes)
+        # if boundaries == None:
+        #     self.lb = self.rb = Reflective(order=order)
+        # else:
+        #     self.lb, self.rb = boundaries
+        # self.lb_diff = self.lb.get_diff(2, h=dx)
+        # self.rb_diff = self.rb.get_diff(2, h=dx)
+
+        # self.glue = (
+        #     int(not type(self.lb) in fixed_boundaries),
+        #     int(not type(self.rb) in fixed_boundaries)
+        # )
+
+        self.ghost = Ghost(nodes, *boundaries)
+        fixed_boundaries = (Dirichlet, Reflective)
+        self.glue = [int(not type(b) in fixed_boundaries) for b in boundaries]
         
         integrator_params = {
             'func': self.func,
             'dt': dt,
             'event': event
         }
-        match type(integrator).__name__:
-            case 'str':
+        error = Exception(f'Integrator not recognized. You can try one of these: ' + ', '.join(_INTEGRATORS.keys()))
+        if type(integrator).__name__ == 'str':
+            try:
                 self.integrator = _INTEGRATORS[integrator](**integrator_params)
-            case 'Integrator':
-                self.integrator = integrator
-            case other: raise f'Type "{other}" is not recognized as a integrator.'
+            except KeyError:
+                raise error
+        elif 'Integrator' in (type(integrator).__name__ *type(integrator).__bases__):
+            self.integrator = integrator
+        else:
+            raise error
     
-    def func(self, t, Y):
-        y, Dt_y = Y
+    def func(self, t, y, y_dt):
+        y_dx2 = np.convolve(self.ghost(y), self.central, mode='valid')
 
-        yb = np.r_[(self.Gl @ self.lb.take(y))[::-1], y, (self.Gr @ self.rb.take(y[::-1]))]
-        D2x_y = np.convolve(yb, self.central, mode='valid')
-        
-        # D2x_y = np.r_[
-        #     self.lb_diff @ np.r_[self.lb.param, y[self.lb.slice]],
-        #     np.convolve(y, self.central, mode='valid'),
-        #     (self.rb_diff @ np.r_[self.rb.param, y[::-1][self.rb.slice]])[::-1]
-        # ]
-
-        D2t_y = D2x_y - self.F(y)
-        D2t_y[0] *= self.dirichlet_filter[0]
-        D2t_y[-1] *= self.dirichlet_filter[1]
+        y_dt2 = y_dx2 - self.F(y)
+        y_dt2[0] *= self.glue[0]
+        y_dt2[-1] *= self.glue[1]
         return np.stack((
-            Dt_y,
-            D2t_y
+            y_dt,
+            y_dt2
         ))
 
     def run(self, t_final: float, t0: float=0, **y0_params):
-        t, Y = self.integrator.run(self.y0(self.x, **y0_params), t_final=t_final, t0=t0)
+        Y0 = self.y0(self.x, **y0_params)
+        t, Y = self.integrator.run(t_final, Y0, t0=t0)
         return Grid(x=self.x, t=t), Y
