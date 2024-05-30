@@ -117,4 +117,4 @@ class Wave:
     def run(self, t_final: float, t0: float=0, **y0_params):
         Y0 = self.y0(self.x, **y0_params)
         t, Y = self.integrator.run(t_final, Y0, t0=t0)
-        return Grid(x=self.x, t=t), Y
+        return Grid(t=t, x=self.x), Y

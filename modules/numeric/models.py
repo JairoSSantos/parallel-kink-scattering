@@ -14,7 +14,7 @@ class Phi4:
         return self.vacuum*sqrt(self.scale/2)
 
     def __call__(self, y: NUMERIC) -> NUMERIC:
-        return (self.scale/4)*(y**2 - self.vacuum**2)**2
+        return self.scale*(y**2 - self.vacuum**2)**2/4
     
     def diff(self, y: NUMERIC) -> NUMERIC:
         return self.scale*y*(y**2 - self.vacuum**2)
