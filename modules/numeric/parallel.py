@@ -14,7 +14,7 @@ def get_logger():
 
 class ArrayBuilder:
     '''
-    Objeto responsável por compartilhar um array numpy entre processos.
+    Sharing numpy array between parallel processes.
     '''
     def __init__(self, dtype: np.dtype, shape: tuple):
         self.dtype = dtype

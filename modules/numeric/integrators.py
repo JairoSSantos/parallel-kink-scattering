@@ -42,25 +42,30 @@ _SYMPLECTIC['6th-order'] = (
 class Integrator(ABC):
     def __init__(self, 
                  dt: float, 
-                 func: Callable[[float, _NUMERIC], _NUMERIC], 
-                 event: Callable[[float, _NUMERIC], None]=(lambda t, Y: None)):
+                 func: Callable[[float, _NUMERIC], _NUMERIC]):
+        
         self.dt = dt
         self.func = func
-        self.event = event
 
     @abstractmethod
     def step(self, t: float, u: _NUMERIC) -> _NUMERIC:
         pass
 
-    def run(self, t_final: float, Y0: _NUMERIC, t0: float=0):
-        t = [t0]
-        Y = [Y0]
-        while t[-1] < t_final:
-            self.event(t[-1], Y[-1])
-            Y.append(self.step(t[-1], Y[-1]))
-            t.append(t[-1] + self.dt)
-        self.event(t[-1], Y[-1])
-        return np.stack(t), np.stack(Y)
+    def run(self, t_final: float, Y0: _NUMERIC, t0: float=0, stack: bool=True):
+        if stack:
+            t, Y = [t0], [Y0]
+            while True:
+                new_Y = self.step(t[-1], Y[-1])
+                Y.append(new_Y)
+                t.append(t[-1] + self.dt)
+                if t[-1] > t_final: break
+            return np.stack(t), np.stack(Y)
+        else:
+            while True:
+                Y0 = self.step(t0, Y0)
+                t0 += self.dt
+                if t0 > t_final: break
+            return t0, Y0
 
 class RungeKutta4th(Integrator):
 
