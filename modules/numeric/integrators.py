@@ -51,11 +51,14 @@ class Integrator(ABC):
     def step(self, t: float, u: _NUMERIC) -> _NUMERIC:
         pass
 
-    def run(self, t_final: float, Y0: _NUMERIC, t0: float=0, stack: bool=True):
+    def run(self, t_final: float, Y0: _NUMERIC, t0: float=0, 
+            stack: bool=True, event: Callable[[float, _NUMERIC], None]=None):
+        event_true = (event != None)
         if stack:
             t, Y = [t0], [Y0]
             while True:
                 new_Y = self.step(t[-1], Y[-1])
+                if event_true: event(t[-1], Y[-1])
                 Y.append(new_Y)
                 t.append(t[-1] + self.dt)
                 if t[-1] > t_final: break
@@ -64,6 +67,7 @@ class Integrator(ABC):
             while True:
                 Y0 = self.step(t0, Y0)
                 t0 += self.dt
+                if event_true: event(t0, Y0)
                 if t0 > t_final: break
             return t0, Y0
 

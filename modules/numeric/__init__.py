@@ -105,7 +105,7 @@ class Wave:
             y_dt2
         ))
 
-    def run(self, t_final: float, t0: float=0, stack: bool=True, **y0_params) -> tuple[Grid, np.ndarray[float]]:
+    def run(self, t_final: float, t0: float=0, stack: bool=True, event: Callable[[float, _NUMERIC], None]=None, **y0_params) -> tuple[Grid, np.ndarray[float]]:
         Y0 = self.y0(self.x, **y0_params)
-        t, Y = self.integrator.run(t_final, Y0, t0=t0, stack=stack)
+        t, Y = self.integrator.run(t_final, Y0, t0=t0, stack=stack, event=event)
         return Grid(t=t, x=self.x), Y
