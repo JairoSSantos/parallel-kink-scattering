@@ -164,3 +164,6 @@ data/*mosaic*
 
 *.out
 *.npy
+reports/**/*.svg
+reports/**/*.gif
+reports/**/*.png
