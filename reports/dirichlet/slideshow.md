@@ -61,16 +61,16 @@ $$
 $$
 para
 $$
-U(x)= V''(\varphi) =6\varphi ^{2}(x) -2\tag{7}
+U(x)= V''(\varphi) =6\varphi ^{2}(x) -2\tag{7}.
 $$
-na semilinha negativa $x \leq 0$.
 
 ---
 
 - Analisando apenas as perturbações para as soluções que interpolam $|H|\leq 1$,
 $$
-U( x) =6\tanh^{2}\left(\tanh^{-1} H-x\right) -2\tag{8}
+U( x) =6\tanh^{2}\left(\mu\tanh^{-1} H-x\right) -2\tag{8}
 $$
+na semilinha negativa $x \leq 0$.
 
 ![width:900px center](schro-potential.svg)
 
@@ -111,13 +111,13 @@ e resolver o problema de autovalor na aproximação matricial.
 
 ## Densidade espectral
 
-- Sendo $\tilde{\omega}_0$ a menor frequência encontrada na análise numérica do problema de autovalor
+- Sendo $\tilde{\omega}_0$ a menor frequência encontrada na análise numérica da equação de Schrodinger para perturbações em torno das soluções de fronteira.
 
 ![width:570px](eigenvalues.svg) ![width:530px](spectrum-map-v=0.25.svg)
 
 ---
 
-# Ocsilon-fronteira ($H=-0.5$, $v\approx 0.13$)
+# Ocsilon-fronteira ($H=-0.5$, $v\approx 0.132$)
 
-![height:230px center](static-oscilon_1.svg) 
-![width:600px](static-oscilon-decay_1.svg) ![width:600px](static-oscilon-fft_1.svg)
+![height:230px center](static-oscilon.svg) 
+![width:700px center](static-oscilon-fft.svg)
