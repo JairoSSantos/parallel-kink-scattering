@@ -167,4 +167,5 @@ data/*mosaic*
 reports/**/*.svg
 reports/**/*.gif
 reports/**/*.png
-data/dirichlet/spectrum-v=0.75.csv
+
+data/dirichlet/**
