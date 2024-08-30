@@ -2,124 +2,124 @@ import sys
 sys.path.insert(1, '../../')
 
 import numpy as np
-import time
-from multiprocessing import Pool, Value, current_process
-from os import cpu_count
-
+import pandas as pd
 from modules.numeric import *
-from findiff import FinDiff
+from pathlib import Path
+from multiprocessing import Pool, Value, Queue, Process, Lock
+from os import cpu_count
+from ctypes import c_int
+from scipy import signal
 
-# ===== Definições gerais
-SAVEPATH = 'phi4-dirichlet-scan.npy'
-
-PHI4 = Phi4()
+phi4 = Phi4()
 X0 = 10
 L = 200
 N = 2048
 DX = L/(N - 1)
 DT = 4e-2
-DIFF = FinDiff((0, DX, 1), acc=4)
-
-def chi(H, mu, nu):
-    return mu*np.arctanh(H**nu)
-
-def varphi(x, mu, nu):
-    return mu*np.tanh(-x)**nu
+DATAPATH = Path('../../data/dirichlet')
+LOGGER = get_logger()
 
 def phi_dirichlet(x, H, mu=1):
-    assert H > -1
     nu = np.sign(1 - abs(H))
-    return mu*np.tanh(chi(H, mu, nu) - x)**nu
+    return mu*np.tanh(mu*np.arctanh(H**nu) - x)**nu
 
 def init(x, v, H):
     return np.stack((
-        phi_dirichlet(x, H) + PHI4.kink(x + X0, 0, v) - 1,
-        PHI4.kink_dt(x + X0, 0, v)
+        phi_dirichlet(x, H) + phi4.kink(x + X0, 0, v) - 1,
+        phi4.kink_dt(x + X0, 0, v)
     ))
 
-# V = np.linspace(0, 1, 503)[1:-1] # velicidades iniciais
-# Hs = np.linspace(-1, 2, 501) # parâmetro de borda
-# TOTAL = len(V)*len(Hs) # total de pontos
+def diff_4th(y):
+    return (-25/12)*y[-1] + 4*y[-2] -3*y[-3] + (4/3)*y[-4] - (1/4)*y[-5]
 
-# Objeto `logger` para visualizar o andamento do código em tempo real
-# logger = get_logger()
+def get_derivative(u, tmin=0, tmax=np.infty):
+    def wrapper(t, Y):
+        if tmin <= t <= tmax:
+            y, _ = Y
+            u.append(diff_4th(y)/DX)
+    return wrapper
 
-# ===== Função para salvar mosaico
-# def save_progress():
-#     global mosaic
-#     with open(SAVEPATH, 'wb') as file:
-#         np.save(file, mosaic.to_numpy())
+def save_progress():
+    global H_VALUES, V_VALUES, COUNTER, TOTAL, RESULT, COMPLETE
 
-# # ===== Função realizada paralelamente pelos clusters
-# def scan(H):
-#     global mosaic, counter
+    if len(COMPLETE) > 0:
+        mosaic = [
+            pd.read_csv(DATAPATH/'mosaic.csv', index_col=0).values,
+            pd.read_csv(DATAPATH/'mosaic_freq.csv', index_col=0).values
+        ]
+    else:
+        mosaic = [
+            np.full((len(H_VALUES), len(V_VALUES)), np.nan),
+            np.full((len(H_VALUES), len(V_VALUES)), np.nan)
+        ]
 
-#     j = np.argwhere(H == Hs)
+    while COUNTER.value < TOTAL:
+        H, U, W = RESULT.get()
+        index = np.argwhere(H_VALUES == H)
+        mosaic[0][index] = U
+        mosaic[1][index] = W
+        pd.DataFrame(mosaic[0], columns=V_VALUES, index=H_VALUES).to_csv(DATAPATH/'mosaic.csv')
+        pd.DataFrame(mosaic[1], columns=V_VALUES, index=H_VALUES).to_csv(DATAPATH/'mosaic_freq.csv')
+        LOGGER.debug('Progresso salvo!')
 
-#     dirichlet = Dirichlet(order=4, param=H)
-#     reflective = Reflective(order=4)
+def task(H):
+    global H_VALUES, V_VALUES, COUNTER, TOTAL, RESULT, COMPLETE
 
-#     collider = Wave(
-#         x_grid= (-L, 0, N), 
-#         dt= DT, 
-#         order= 4,
-#         y0= init,
-#         F= PHI4.diff,
-#         boundaries= (reflective, dirichlet),
-#         integrator= 'rk4',
-#     )
-    
-#     for i, v in enumerate(V):
-#         logger.debug(f'Executando simulação para H={H} e v={v}...')
-#         with counter.get_lock(): counter.value += 1
-#         _, Y = collider.run(X0/v + L, v=v, H=H)
-#         mosaic_array = mosaic.to_numpy()
-#         mosaic_array[i, j] = DIFF(Y[-1, 0])[-1]
-    
-#     logger.debug(f'({(100*counter.value/TOTAL):.2f}%) Salvando mosaico...')
-#     save_progress()
+    if H in COMPLETE:
+        LOGGER.debug(f'Colisões para H={H} encontradas no arquivo de salvamento...')
+    else:
+        dirichlet = Dirichlet(order=4, param=H)
+        reflective = Reflective(order=4)
 
-def main_task(H_QUEUE, V_PARAM, RESULT_QUEUE, PROGRESS):
-    dirichlet = Dirichlet(order=4)
-    reflective = Reflective(order=4)
+        collider = Wave(
+            x_grid= (-L, 0, N), 
+            dt= DT, 
+            order= 4,
+            y0= init,
+            F= phi4.diff,
+            boundaries= (reflective, dirichlet),
+            integrator= 'rk4',
+        )
+        U = []
+        W = []
+        for v in V_VALUES:
+            LOGGER.debug(f'Rodando a colisão para H={H} e v={v}...')
 
-    collider = Wave(
-        x_grid= (-L, 0, N), 
-        dt= DT, 
-        order= 4,
-        y0= init,
-        F= PHI4.diff,
-        boundaries= (reflective, dirichlet),
-        integrator= 'rk4',
-    )
+            u = []
+            collider.run(400, v=v, H=H, stack=False, event=get_derivative(u))
+            with COUNTER.get_lock(): COUNTER.value += 1
+            
+            index = int((X0/v + 100)/DT)
+            if index >= len(u): index = -1
+            U.append(u[index])
 
-    while not H_QUEUE.empty():
-        H = H_QUEUE.get()
-        dirichlet.param = H
-        result = []
-        for v in V_PARAM:
-            PROGRESS[current_process().pid] += 1
-            _, (y, _) = collider.run(X0/v + L, stack=False, v=v, H=H)
-            result.append(DIFF(y)[-1])
-        RESULT_QUEUE.put((v, H, result))
+            f, Pxx = signal.periodogram(u, 1/DT)
+            W.append(f[np.argmax(Pxx)])
 
-def save_task(H_QUEUE, V_PARAM, RESULT_QUEUE, PROGRESS):
-    
+        LOGGER.debug(f'({(100*COUNTER.value/TOTAL):.2f}%) Enviando os resultados de H={H}...')
+        RESULT.put((H, U, W))
 
 if __name__ == '__main__':
-    global mosaic, counter
+    global H_VALUES, V_VALUES, COUNTER, TOTAL, RESULT
 
-    # mosaico compartilhado entre processos
-    mosaic = ArrayBuilder(np.float64, (len(V), len(Hs)))
-    save_progress()
+    Nv = 500
+    H_VALUES = np.linspace(-1, 2, Nv+1)[1:]
+    V_VALUES = np.linspace(0, 1, Nv+2)[1:-1]
+    RESULT = Queue()
 
-    # contador compartilhado entre processos
-    counter = Value('i', 0)
+    COMPLETE = [H_VALUES[index] for index, u in enumerate(pd.read_csv(DATAPATH/'mosaic.csv', index_col=0).values) if np.nansum(u) != 0]
+    # COMPLETE = tuple()
 
-    logger.debug(f'Iniciando simulações...')
-    with Pool(int(cpu_count()*0.8)) as pool:
-        pool.map(scan, Hs)
+    COUNTER = Value(c_int, 0)
+    TOTAL = Nv**2
 
-    save_progress()
+    saving = Process(target=save_progress)
+    saving.start()
+
+    LOGGER.debug(f'Iniciando simulações...')
+    with Pool(int(cpu_count()*0.6)) as pool:
+        pool.map(task, H_VALUES)
+
+    saving.join()
     
-    logger.debug(f'Mosaico finalizado')
+    LOGGER.debug(f'Mosaico finalizado')
