@@ -27,4 +27,4 @@ class Phi4:
     def kink_dt(self, x: NUMERIC, t: float, v: float) -> NUMERIC:
         gamma = 1/sqrt(1 - v**2)
         z = gamma*(x - v*t)
-        return -self.eta*self.scale_factor*gamma*v/np.cosh(z)**2
+        return -self.eta*self.scale_factor*gamma*v/np.cosh(self.scale_factor*z)**2
